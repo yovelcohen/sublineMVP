@@ -1,17 +1,21 @@
 import asyncio
 from typing import cast
 
+import openai
 import streamlit as st
 from io import StringIO
 import srt as srt_lib
 
-from logic.constructor import SrtString, parse_srt, SRTTranslator, TranslatedSRT
+from logic.constructor import SrtString, SRTTranslator, TranslatedSRT
 from logic.function import SRTBlock
+
+async_openai_client = openai.AsyncOpenAI(api_key=st.secrets['OPENAI_KEY'])
 
 
 async def translate(bar, _name, _rows, _target_language):
     bar.progress(10, 'Loading..')
-    translator = SRTTranslator(target_language=_target_language, project_name=_name, rows=_rows)
+    translator = SRTTranslator(target_language=_target_language, project_name=_name, rows=_rows,
+                               openai_client=async_openai_client)
     _ret = await translator(num_rows_in_chunk=150, bar=bar)
     st.session_state['name'] = _ret
     bar.progress(100, 'Done!')

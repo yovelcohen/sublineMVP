@@ -1,21 +1,17 @@
 import json
 import logging
-import os
 import time
 from datetime import datetime
-from json import JSONDecodeError
 from typing import TypedDict, Literal
 
 import json_repair
-import openai
 import tiktoken
+from openai import AsyncOpenAI
 from openai.types.chat.chat_completion import Choice
 from srt import Subtitle, timedelta_to_srt_timestamp
 
 logger = logging.getLogger(__name__)
-OPENAI_KEY: str = os.environ['OPENAI_KEY']
 encoder = tiktoken.encoding_for_model('gpt-4')
-async_openai_client = openai.AsyncOpenAI(api_key=OPENAI_KEY)
 
 
 def parse_time(seconds: float) -> datetime:
@@ -141,7 +137,8 @@ async def translate_via_openai_func(
         rows: list[SRTBlock],
         target_language: str,
         tokens_safety_buffer: int = 400,
-        model: Literal['best', 'good'] = 'best'
+        model: Literal['best', 'good'] = 'best',
+        client: AsyncOpenAI = AsyncOpenAI()
 ) -> tuple[dict[str, str], int]:
     """
     :param model: GPT Model to use
@@ -166,7 +163,7 @@ async def translate_via_openai_func(
     req = dict(messages=messages, seed=99, response_format={"type": "json_object"}, model=MODELS[model], temperature=.2)
     try:
         t1 = time.time()
-        func_resp = await async_openai_client.chat.completions.create(**req)
+        func_resp = await client.chat.completions.create(**req)
         t2 = time.time()
         logger.info('finished openai request, took %s seconds', t2 - t1)
         ret = func_resp.choices[0]
