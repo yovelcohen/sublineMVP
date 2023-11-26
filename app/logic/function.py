@@ -5,8 +5,9 @@ from datetime import datetime
 from typing import TypedDict, Literal
 
 import json_repair
+import openai
 import tiktoken
-from openai import AsyncOpenAI
+import streamlit as st
 from openai.types.chat.chat_completion import Choice
 from srt import Subtitle, timedelta_to_srt_timestamp
 
@@ -131,14 +132,13 @@ def prepare_text_data(rows, target_language):
 
 
 MODELS = {'good': 'gpt-3.5-turbo-1106', 'best': 'gpt-4-1106-preview'}
-
+client = openai.AsyncOpenAI(api_key=st.secrets['OPENAI_KEY'])
 
 async def translate_via_openai_func(
         rows: list[SRTBlock],
         target_language: str,
         tokens_safety_buffer: int = 400,
-        model: Literal['best', 'good'] = 'best',
-        client: AsyncOpenAI = AsyncOpenAI()
+        model: Literal['best', 'good'] = 'best'
 ) -> tuple[dict[str, str], int]:
     """
     :param model: GPT Model to use

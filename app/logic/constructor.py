@@ -126,10 +126,10 @@ class SRTTranslator:
     JSON_PARSING_ERROR = 'jp'
     TOKEN_LIMIT_ERROR = 'tl'
 
-    __slots__ = ('name', 'target_language', 'rows', 'make_function_translation', 'failed_rows', 'sema', 'openai_client')
+    __slots__ = ('name', 'target_language', 'rows', 'make_function_translation', 'failed_rows', 'sema')
 
     def __init__(self, project_name: str, target_language: str, deepgram_results: dict = None,
-                 rows: list[SRTBlock] = None, openai_client=None):
+                 rows: list[SRTBlock] = None):
         self.name = project_name
         self.target_language = target_language
         self.rows = rows or [
@@ -139,7 +139,6 @@ class SRTTranslator:
         ]
         self.failed_rows: defaultdict[str, list[SRTBlock]] = defaultdict(list)
         self.sema = asyncio.BoundedSemaphore(6)
-        self.openai_client = openai_client
 
     async def __call__(self, bar, num_rows_in_chunk: int = 500) -> TranslatedSRT:
         return await self._translate(bar, num_rows_in_chunk=num_rows_in_chunk)
@@ -167,8 +166,7 @@ class SRTTranslator:
     async def _run_one_chunk(self, chunk: list[SRTBlock], bar=None, i=None):
         async with self.sema:
             try:
-                answer, last_idx = await translate_via_openai_func(chunk, target_language=self.target_language,
-                                                                   client=self.openai_client)
+                answer, last_idx = await translate_via_openai_func(chunk, target_language=self.target_language)
                 # back_up_raw_jsons(name=self.name, original_rows=chunk, answer=answer,
                 #                   target_language=self.target_language)
                 if last_idx != -1:
