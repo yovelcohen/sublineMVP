@@ -13,7 +13,7 @@ from openai.types.chat.chat_completion import Choice
 from srt import Subtitle, timedelta_to_srt_timestamp
 
 logger = logging.getLogger(__name__)
-OPENAI_KEY: str = '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'
+OPENAI_KEY: str = os.environ['OPENAI_KEY']
 encoder = tiktoken.encoding_for_model('gpt-4')
 async_openai_client = openai.AsyncOpenAI(api_key=OPENAI_KEY)
 
