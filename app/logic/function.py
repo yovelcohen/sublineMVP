@@ -1,5 +1,7 @@
 import json
 import logging
+import os
+import re
 import time
 from datetime import datetime
 from typing import TypedDict, Literal
@@ -82,7 +84,10 @@ def get_openai_translation_func(srt_items: list[SRTBlock]):
     ]
 
 
-def validate_and_parse_answer(answer: Choice, last_idx: int):
+last_key_regex = re.compile(r'\"(\d+)\":(?=\s*\".*?\"\s*,?\s*\}\s*$)', re.DOTALL)
+
+
+def validate_and_parse_answer(answer: Choice):
     """
     validate the answer from openai and return the parsed answer
     """
@@ -90,23 +95,31 @@ def validate_and_parse_answer(answer: Choice, last_idx: int):
     try:
         fixed_json = json_repair.loads(json_str)
     except ValueError as e:
-        if not json_str.endswith('}'):
-            last_char = json_str[-1]
-            if last_char.isalnum():
-                json_str += '"}'
-            elif last_char == ',':
-                json_str = json_str[:-1] + '}'
-            elif json_str.endswith('"'):
-                json_str += '}'
-            else:
-                raise e
-            try:
-                fixed_json = json_repair.loads(json_str)
-            except ValueError as e:
-                raise e
-            logger.exception('failed to parse answer from openai, fixed json manually')
+        try:
+            json_str = json_str.rsplit(',', 1)[0] + '}'
+            json_str = json_repair.loads(json_str)
+        except ValueError:
+            pass
+        if isinstance(json_str, dict):
+            fixed_json = json_str
         else:
-            raise e
+            if not json_str.endswith('}'):
+                last_char = json_str[-1]
+                if last_char.isalnum():
+                    json_str += '"}'
+                elif last_char == ',':
+                    json_str = json_str[:-1] + '}'
+                elif json_str.endswith('"'):
+                    json_str += '}'
+                else:
+                    raise e
+                try:
+                    fixed_json = json_repair.loads(json_str)
+                except ValueError as e:
+                    logger.exception('failed to parse answer from openai, fixed json manually')
+                    raise e
+    except Exception as e:
+        raise e
 
     data = fixed_json['translation'] if 'translation' in fixed_json else fixed_json
     last_index = -1
@@ -131,8 +144,14 @@ def prepare_text_data(rows, target_language):
     return text_data
 
 
+try:
+    api_key = st.secrets['OPENAI_KEY']
+except:
+    api_key = os.environ['OPENAI_KEY']
+
 MODELS = {'good': 'gpt-3.5-turbo-1106', 'best': 'gpt-4-1106-preview'}
-client = openai.AsyncOpenAI(api_key=st.secrets['OPENAI_KEY'])
+client = openai.AsyncOpenAI(api_key=api_key)
+
 
 async def translate_via_openai_func(
         rows: list[SRTBlock],
@@ -153,21 +172,21 @@ async def translate_via_openai_func(
         return {}, -1
     messages = [
         {'role': 'user',
-         'content': f'Translate the each row of this subtitles to {target_language}, And return the translated rows by their corresponding index as valid JSON structure.:\n {json.dumps({row.index: row.content for row in rows})}'},
+         'content': f'Translate the each row of this subtitles to {target_language}, And return the translated rows by their corresponding index as valid JSON structure. YOU MUST OUTPUT VALID JSON STRUCTURE, EVEN IF YOU NEED TO REMOVE TRANSLATIONS FROM THE RESPONSE!!\nRows:\n {json.dumps({row.index: row.content for row in rows})}'},
     ]
     data_token_cost = len(encoder.encode(json.dumps(messages)))
     max_completion_tokens = 16000 - (data_token_cost + tokens_safety_buffer)
     if max_completion_tokens < data_token_cost:
         raise TokenCountTooHigh(f'openai token limit is 16k, and the data token cost is {data_token_cost}, '
                                 f'please reduce the number of rows')
-    req = dict(messages=messages, seed=99, response_format={"type": "json_object"}, model=MODELS[model], temperature=.2)
+    req = dict(messages=messages, seed=99, response_format={"type": "json_object"}, model=MODELS[model], temperature=.1)
     try:
         t1 = time.time()
         func_resp = await client.chat.completions.create(**req)
         t2 = time.time()
         logger.info('finished openai request, took %s seconds', t2 - t1)
         ret = func_resp.choices[0]
-        answer, last_idx = validate_and_parse_answer(answer=ret, last_idx=rows[-1].index)
+        answer, last_idx = validate_and_parse_answer(answer=ret)
         return answer, last_idx
     except Exception as e:
         raise e
