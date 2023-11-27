@@ -74,7 +74,7 @@ if st.session_state.get('stage', 0) != 1:
         assert source_language != target_language
         submitted = st.form_submit_button("Translate")
         if submitted:
-            if uploaded_file.type == 'srt':
+            if uploaded_file.name.endswith('srt'):
                 st.session_state['stage'] = 1
                 stringio = StringIO(uploaded_file.getvalue().decode("utf-8"))
                 string_data = cast(SrtString, stringio.read())
