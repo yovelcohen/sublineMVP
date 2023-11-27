@@ -89,7 +89,7 @@ class ConstructTranslatedSRT:
 
     def __init__(self, name: str, srts: list[SRTBlock], translated_text: dict[str, str]):
         self.name = name
-        self.srts = sorted(srts, key=lambda row: row.index)
+        self.srts = sorted([s for s in srts if s.index], key=lambda row: row.index)
         self.translated_text = translated_text
         self.missing_translations = False
 
