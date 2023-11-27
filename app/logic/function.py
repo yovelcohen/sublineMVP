@@ -1,3 +1,4 @@
+import asyncio
 import json
 import logging
 import os
@@ -10,6 +11,7 @@ import json_repair
 import openai
 import tiktoken
 import streamlit as st
+from httpx import Timeout
 from openai.types.chat.chat_completion import Choice
 from srt import Subtitle, timedelta_to_srt_timestamp
 
@@ -118,8 +120,12 @@ def validate_and_parse_answer(answer: Choice):
                 except ValueError as e:
                     logger.exception('failed to parse answer from openai, fixed json manually')
                     raise e
+
     except Exception as e:
         raise e
+
+    if isinstance(fixed_json, (list, set, tuple)):
+        return fixed_json, -1
 
     data = fixed_json['translation'] if 'translation' in fixed_json else fixed_json
     last_index = -1
@@ -128,6 +134,10 @@ def validate_and_parse_answer(answer: Choice):
         # we don't trust the fixer or openai, so we remove the last index,
         # which is usually a shitty translation anyway.
         data.pop(last_index)
+    try:
+        last_index = int(last_index)
+    except:
+        raise ValueError(f'last index is not an integer, last index is {last_index}')
     return data, last_index
 
 
@@ -150,7 +160,23 @@ except:
     api_key = os.environ['OPENAI_KEY']
 
 MODELS = {'good': 'gpt-3.5-turbo-1106', 'best': 'gpt-4-1106-preview'}
-client = openai.AsyncOpenAI(api_key=api_key)
+client = openai.AsyncOpenAI(api_key=api_key, timeout=Timeout(60 * 5))
+
+
+async def make_openai_request(messages: list[dict[str, str]], seed: int = 99, model: str = 'best',
+                              temperature: float = .1, max_tokens: int | None = None):
+    req = dict(messages=messages, seed=seed, response_format={"type": "json_object"}, model=MODELS[model],
+               temperature=temperature, max_tokens=max_tokens)
+    try:
+        t1 = time.time()
+        func_resp = await client.chat.completions.create(**req)
+        t2 = time.time()
+        logger.info('finished openai request, took %s seconds', t2 - t1)
+        ret = func_resp.choices[0]
+        answer, last_idx = validate_and_parse_answer(answer=ret)
+        return answer, last_idx
+    except Exception as e:
+        raise e
 
 
 async def translate_via_openai_func(
@@ -171,22 +197,54 @@ async def translate_via_openai_func(
     if not rows:
         return {}, -1
     messages = [
+        {"role": 'system',
+         'content': "You are a proficient TV shows translator, you notice subtle target language nuances like names, slang... and you are able to translate them. Make sure you output a valid JSON, no matter what!"},
         {'role': 'user',
-         'content': f'Translate the each row of this subtitles to {target_language}, And return the translated rows by their corresponding index as valid JSON structure. YOU MUST OUTPUT VALID JSON STRUCTURE, EVEN IF YOU NEED TO REMOVE TRANSLATIONS FROM THE RESPONSE!!\nRows:\n {json.dumps({row.index: row.content for row in rows})}'},
+         'content': f'Translate the each row of this subtitles to {target_language}, And return the translated rows by their corresponding index as valid JSON structure. \nRows:\n {json.dumps({row.index: row.content for row in rows})}'},
     ]
     data_token_cost = len(encoder.encode(json.dumps(messages)))
     max_completion_tokens = 16000 - (data_token_cost + tokens_safety_buffer)
     if max_completion_tokens < data_token_cost:
         raise TokenCountTooHigh(f'openai token limit is 16k, and the data token cost is {data_token_cost}, '
                                 f'please reduce the number of rows')
-    req = dict(messages=messages, seed=99, response_format={"type": "json_object"}, model=MODELS[model], temperature=.1)
-    try:
-        t1 = time.time()
-        func_resp = await client.chat.completions.create(**req)
-        t2 = time.time()
-        logger.info('finished openai request, took %s seconds', t2 - t1)
-        ret = func_resp.choices[0]
-        answer, last_idx = validate_and_parse_answer(answer=ret)
-        return answer, last_idx
-    except Exception as e:
-        raise e
+    return await make_openai_request(messages=messages, seed=99, model=model, temperature=.1)
+
+
+async def translate_texts_list(
+        texts: list[str], target_language: str, model: Literal['best', 'good'] = 'best'
+) -> dict[str, str]:
+    def chunk_texts(_texts, token_limit):
+        sublists, current_str, current_token_count = [[]], str(), 0
+
+        for text in _texts:
+            num_tokens = len(encoder.encode(text))
+            if (current_token_count + num_tokens) < token_limit:
+                sublists[-1].append(text)
+                current_token_count += num_tokens
+            else:
+                current_token_count = 0
+                sublists.append([text])
+        return sublists
+
+    sema = asyncio.BoundedSemaphore(10)
+
+    async def translate_chunk(chunk):
+        messages = [
+            {"role": 'system',
+             'content': "You are a proficient TV shows translator, you notice subtle target language nuances like names, slang... and you are able to translate them. Make sure you output a valid JSON, no matter what!"},
+            {"role": 'user',
+             'content': f'Translate the each row of this subtitles to {target_language}, And return the translated rows as valid JSON Array. \nRows:\n {json.dumps(chunk)}'}
+        ]
+        async with sema:
+            translations, idx = await make_openai_request(messages=messages, seed=99,
+                                                          model=MODELS[model], temperature=.1)
+        assert len(translations) == len(chunk)
+        return dict(zip(chunk, translations))
+
+    chunks = chunk_texts(texts, 2500)
+    tasks = [translate_chunk(chunk) for chunk in chunks]
+    final = dict()
+    results = await asyncio.gather(*tasks)
+    for ret in results:
+        final.update(ret)
+    return final
