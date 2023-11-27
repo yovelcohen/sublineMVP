@@ -44,33 +44,34 @@ def replace_texts(texts_translated: list[str], parent_map: dict[str, ET.Element]
         parent_map[original_text].text = translated_text
 
 
-async def main(xml_data: str, target_langauge: str) -> XMLString:
+async def translate_xml(xml_data: str, target_language: str) -> XMLString:
     """
     Process the XML data by translating the texts and rebuilding the XML.
     :param xml_data: XML data in string format.
+    :param target_language: The translation's target language.
+
     :returns The processed XML data as a string.
     """
     # Parse the XML
     root = ET.fromstring(xml_data)
 
     # Extract texts and keep a map of their parent elements
-    texts_to_translate = []
-    parent_map = {}
+    parent_map, texts_to_translate = {}, []
     extract_texts(root, texts_to_translate, parent_map)
 
     # Translate the texts
-    translated_texts = await translate(texts_to_translate, target_langauge)
+    translated_texts = await translate(texts_to_translate, target_language)
 
     # Replace the original texts with the translated ones
     replace_texts(translated_texts, parent_map)
 
     # Output the modified XML
-    return cast(XMLString, ET.tostring(root, encoding='unicode'))
+    return cast(XMLString, ET.tostring(root, encoding='utf-8'))
 
 
 if __name__ == '__main__':
     with open('/Users/yovel.c/PycharmProjects/services/sublineStreamlit/demo1.xml', 'r') as f:
-        xml_data = f.read()
+        _xml_data = f.read()
     lang = 'Hebrew'
-    processed_xml = main(xml_data, target_langauge=lang)
+    processed_xml = translate_xml(_xml_data, target_language=lang)
     print(processed_xml)
