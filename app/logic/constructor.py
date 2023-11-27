@@ -230,7 +230,7 @@ class SRTTranslator:
             if len(missing) == 0:
                 return
             logger.debug('found %s missing translations, translating them now', len(missing))
-            translated = await self._run_one_chunk(missing)
+            translated = await self._run_one_chunk(missing, None, None, None)
             constructor.translated_text.update(translated)
             constructor.add_translation_to_rows()
 
