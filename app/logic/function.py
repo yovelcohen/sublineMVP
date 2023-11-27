@@ -164,7 +164,7 @@ client = openai.AsyncOpenAI(api_key=api_key, timeout=Timeout(60 * 5))
 
 
 async def make_openai_request(messages: list[dict[str, str]], seed: int = 99, model: str = 'best',
-                              temperature: float = .1, max_tokens: int | None = None):
+                              temperature: float = .1, max_tokens: int | None = None, retry_count=1):
     req = dict(messages=messages, seed=seed, response_format={"type": "json_object"}, model=MODELS[model],
                temperature=temperature, max_tokens=max_tokens)
     try:
@@ -175,6 +175,15 @@ async def make_openai_request(messages: list[dict[str, str]], seed: int = 99, mo
         ret = func_resp.choices[0]
         answer, last_idx = validate_and_parse_answer(answer=ret)
         return answer, last_idx
+    except openai.APITimeoutError as e:
+        logger.exception('openai timeout error, sleeping for 5 seconds and retrying')
+        await asyncio.sleep(5)
+        if retry_count == 3:
+            st.error('openai API timed out 3 times, please try again later')
+            raise e
+        st.text('openai API timed out, sleeping for 5 seconds and retrying')
+        return await make_openai_request(messages=messages, seed=seed, model=model, temperature=temperature,
+                                         retry_count=retry_count + 1)
     except Exception as e:
         raise e
 
