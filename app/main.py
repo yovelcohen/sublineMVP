@@ -38,14 +38,16 @@ logger = logging.getLogger(__name__)
 
 
 async def translate(_name, _rows, _target_language, _model):
-    with st.spinner('Translating...'):
-        t1 = time.time()
-        logger.debug('starting translation request')
-        translator = SRTTranslator(target_language=_target_language, project_name=_name, rows=_rows, model=_model)
-        _ret = await translator(num_rows_in_chunk=75)
-        st.session_state['name'] = _ret
-        t2 = time.time()
-        logger.debug('finished translation, took %s seconds', t2 - t1)
+    bar = st.progress(0, 'Translating...')
+    st.session_state['bar'] = bar
+    t1 = time.time()
+    logger.debug('starting translation request')
+    translator = SRTTranslator(target_language=_target_language, project_name=_name, rows=_rows, model=_model)
+    _ret = await translator(num_rows_in_chunk=50)
+    st.session_state['name'] = _ret
+    t2 = time.time()
+    logger.debug('finished translation, took %s seconds', t2 - t1)
+    st.session_state['bar'].progress(100, text='Done!')
 
 
 async def translate_via_xml(xml_string):
@@ -68,7 +70,7 @@ if st.session_state.get('stage', 0) != 1:
         type_ = st.selectbox("Type", ["Movie", "Series"])
         uploaded_file = st.file_uploader("Upload a file", type=["srt", "xml"])
         source_language = st.selectbox("Source Language", ["English", "Hebrew", 'French', 'Arabic', 'Spanish'])
-        target_language = st.selectbox("Source Language", ["Hebrew", 'French', 'Arabic', 'Spanish'])
+        target_language = st.selectbox("Target Language", ["Hebrew", 'French', 'Arabic', 'Spanish'])
         model = st.selectbox('Model', ['good', 'best'], help="good is faster, best is more accurate")
 
         assert source_language != target_language

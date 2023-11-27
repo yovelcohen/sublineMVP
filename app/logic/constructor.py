@@ -6,6 +6,7 @@ from collections import defaultdict
 from datetime import datetime
 from typing import NewType, cast, Literal
 
+import streamlit as st
 import httpx
 import tiktoken
 from openai import BadRequestError
@@ -127,7 +128,9 @@ class SRTTranslator:
     JSON_PARSING_ERROR = 'jp'
     TOKEN_LIMIT_ERROR = 'tl'
 
-    __slots__ = ('name', 'target_language', 'rows', 'make_function_translation', 'failed_rows', 'sema', 'model')
+    __slots__ = (
+        'name', 'target_language', 'rows', 'make_function_translation', 'failed_rows', 'sema', 'model',
+        'finished_chunks')
 
     def __init__(self, project_name: str, target_language: str, deepgram_results: dict = None,
                  rows: list[SRTBlock] = None, model: Literal['best', 'good'] = 'best'):
@@ -141,14 +144,18 @@ class SRTTranslator:
         self.failed_rows: defaultdict[str, list[SRTBlock]] = defaultdict(list)
         self.sema = asyncio.BoundedSemaphore(12)
         self.model = model
+        self.finished_chunks: int = 0
 
     async def __call__(self, num_rows_in_chunk: int = 500) -> TranslatedSRT:
         return await self._translate(num_rows_in_chunk=num_rows_in_chunk)
 
     async def _translate(self, num_rows_in_chunk: int = 500) -> TranslatedSRT:
         text_chunks = self._divide_rows(self.rows, num_rows_in_chunk)
+        amount_chunks = len(text_chunks)
         logger.debug('amount of chunks: %s', len(text_chunks))
-        tasks = [self._run_one_chunk(chunk, i=i) for i, chunk in enumerate(text_chunks, start=1)]
+        per_bar = 100 // amount_chunks
+        tasks = [self._run_one_chunk(chunk, i=i, per_bar=per_bar, num_chunks=amount_chunks)
+                 for i, chunk in enumerate(text_chunks, start=1)]
         translated_chunks = await asyncio.gather(*tasks)
         translations = dict()
         for res in translated_chunks:
@@ -164,7 +171,7 @@ class SRTTranslator:
 
         return constructor.results
 
-    async def _run_one_chunk(self, chunk: list[SRTBlock], i: int = None):
+    async def _run_one_chunk(self, chunk: list[SRTBlock], num_chunks, per_bar, i: int = None):
         async with self.sema:
             try:
                 logger.debug('starting to translate chunk number %s via openai', i)
@@ -173,6 +180,12 @@ class SRTTranslator:
                                                                    model=self.model)
                 t2 = time.time()
                 logger.info('finished translating chunk %s via openai, took %s seconds', i, t2 - t1)
+                self.finished_chunks += 1
+                if per_bar and num_chunks:
+                    st.session_state['bar'].progress(
+                        min((per_bar * self.finished_chunks), 95),
+                        text=f'Finished Translating Chunk No. {self.finished_chunks} Out of {num_chunks} Chunks'
+                    )
                 # back_up_raw_jsons(name=self.name, original_rows=chunk, answer=answer,
                 #                   target_language=self.target_language)
                 if last_idx != -1:
@@ -189,10 +202,13 @@ class SRTTranslator:
     async def _handle_failed_rows(self, translations: dict, original_num_rows_in_chunk: int = 500):
 
         async def update_results(_translations, _chunks):
-            tasks = [self._run_one_chunk(chunk) for chunk in _chunks]
+            tasks = [self._run_one_chunk(chunk, None, None, None) for chunk in _chunks]
             translated_chunks = await asyncio.gather(*tasks)
             for result in translated_chunks:
                 _translations.update(result)
+
+        amount_errors = len(self.failed_rows[self.TOKEN_LIMIT_ERROR]) + len(self.failed_rows[self.JSON_PARSING_ERROR])
+        st.session_state['bar'].progress(97, text=f'Fixing {amount_errors} Translation Error')
 
         if token_limit_errors := self.failed_rows.pop(self.TOKEN_LIMIT_ERROR, False):
             num_rows_in_chunk = original_num_rows_in_chunk // 2
