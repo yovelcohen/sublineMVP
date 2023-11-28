@@ -1,21 +1,13 @@
+import asyncio
+import logging
 import xml.etree.ElementTree as ET
-from typing import NewType, cast
+from datetime import timedelta
+from typing import cast, Literal
 
-from logic.function import translate_texts_list
+from logic.constructor import SRTTranslator
+from logic.function import SRTBlock
 
-XMLString = NewType('XMLString', str)
-
-
-async def translate(texts: list[str], target_language: str):
-    """
-    Translate a list of texts.
-    :param target_language: the translation's target language
-    :param texts: A list of strings to be translated.
-    :returns list[str]: The translated list of strings.
-    """
-    ret = await translate_texts_list(texts=texts, target_language=target_language)
-    assert len(texts) == len(ret)
-    return list(ret.values())
+XMLString = str | bytes
 
 
 def extract_texts(element: ET.Element, texts: list[str], parent_map: dict[str, ET.Element]) -> None:
@@ -33,22 +25,37 @@ def extract_texts(element: ET.Element, texts: list[str], parent_map: dict[str, E
         extract_texts(child, texts, parent_map)
 
 
-def replace_texts(texts_translated: list[str], parent_map: dict[str, ET.Element]) -> None:
+def replace_texts(text_to_translation: dict[str, str], parent_map: dict[str, ET.Element]) -> None:
     """
     Replace the original texts in the XML with translated texts.
 
-    :param texts_translated: The list of translated texts.
+    :param text_to_translation: mapping from text to its translation
     :param parent_map: Map containing the relationship between original texts and their parent elements.
     """
-    for original_text, translated_text in zip(parent_map, texts_translated):
+    for original_text, translated_text in text_to_translation.items():
         parent_map[original_text].text = translated_text
 
 
-async def translate_xml(xml_data: str, target_language: str) -> XMLString:
+async def translate(
+        name: str, texts_to_translate: list[str], target_language: str, model: Literal['best', 'good'] = 'best'
+) -> dict[str, str]:
+    blocks = [SRTBlock(content=text, index=i, start=timedelta(seconds=1), end=timedelta(seconds=1))
+              for i, text in enumerate(texts_to_translate)]
+    translator = SRTTranslator(project_name=name, target_language=target_language, rows=blocks, model=model)
+    ret = await translator(100)
+    return {block.content: block.translation for block in ret.rows}
+
+
+async def translate_xml(
+        *, name: str, xml_data: str, target_language: str, model: Literal['best', 'good'] = 'best'
+) -> XMLString:
     """
     Process the XML data by translating the texts and rebuilding the XML.
+
+    :param name: name of the project
     :param xml_data: XML data in string format.
     :param target_language: The translation's target language.
+    :param model: The translation model to use.
 
     :returns The processed XML data as a string.
     """
@@ -60,18 +67,33 @@ async def translate_xml(xml_data: str, target_language: str) -> XMLString:
     extract_texts(root, texts_to_translate, parent_map)
 
     # Translate the texts
-    translated_texts = await translate(texts_to_translate, target_language)
+    text_to_translation = await translate(
+        name=name, texts_to_translate=texts_to_translate, target_language=target_language, model=model
+    )
 
     # Replace the original texts with the translated ones
-    replace_texts(translated_texts, parent_map)
+    replace_texts(text_to_translation, parent_map)
 
     # Output the modified XML
-    return cast(XMLString, ET.tostring(root, encoding='utf-8'))
+    xml = cast(XMLString, ET.tostring(root, encoding='utf-8'))
+    return xml.decode('utf-8')
 
-
-if __name__ == '__main__':
-    with open('/Users/yovel.c/PycharmProjects/services/sublineStreamlit/demo1.xml', 'r') as f:
-        _xml_data = f.read()
-    lang = 'Hebrew'
-    processed_xml = translate_xml(_xml_data, target_language=lang)
-    print(processed_xml)
+# if __name__ == '__main__':
+#     with open('/Users/yovel.c/PycharmProjects/services/sublineStreamlit/app/logic/episode_2_heb.nfs', 'r') as f:
+#         _xml_data = f.read()
+#     # Then set our logger in a normal way
+#     logging.basicConfig(
+#         level=logging.DEBUG,
+#         format="%(levelname)s %(asctime)s %(name)s:%(message)s",
+#         force=True,
+#     )  # Change these settings for your own purpose, but keep force=True at least.
+#
+#     streamlit_handler = logging.getLogger("streamlit")
+#     streamlit_handler.setLevel(logging.DEBUG)
+#     logging.getLogger('httpcore').setLevel(logging.INFO)
+#     logging.getLogger('openai').setLevel(logging.INFO)
+#     logging.getLogger('watchdog.observers').setLevel(logging.INFO)
+#     lang = 'he'
+#     _name = 'SuitsS01E02'
+#     processed_xml = asyncio.run(translate_xml(xml_data=_xml_data, target_language=lang, name=_name, model='good'))
+#     print(processed_xml)

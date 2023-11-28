@@ -65,6 +65,10 @@ class TranslatedSRT:
         self.constructor = constructor
 
     @property
+    def rows(self) -> list[SRTBlock]:
+        return self.constructor.srts
+
+    @property
     def srt(self) -> SrtString:
         rows = [
             Subtitle(index=row.index, start=row.start, end=row.end, content=row.translation)
@@ -79,10 +83,6 @@ class TranslatedSRT:
     @property
     def webvtt(self):
         raise NotImplementedError
-
-    @classmethod
-    def from_constructor(cls, constructor):
-        return cls(constructor=constructor)
 
 
 class ConstructTranslatedSRT:
@@ -132,10 +132,18 @@ class SRTTranslator:
         'name', 'target_language', 'rows', 'make_function_translation', 'failed_rows', 'sema', 'model',
         'finished_chunks')
 
-    def __init__(self, project_name: str, target_language: str, deepgram_results: dict = None,
-                 rows: list[SRTBlock] = None, model: Literal['best', 'good'] = 'best'):
+    def __init__(
+            self, *,
+            project_name: str,
+            target_language: str,
+            deepgram_results: dict = None,
+            rows: list[SRTBlock] = None,
+            model: Literal['best', 'good'] = 'best'
+    ):
         self.name = project_name
         self.target_language = target_language
+        if not rows and not deepgram_results:
+            raise ValueError('either rows or deepgram_results must be provided')
         self.rows = rows or [
             SRTBlock(index=i, start=utterance['start'], end=utterance['end'], content=utterance['transcript'],
                      speaker=utterance['speaker'], num_tokens=len(encoder.encode(utterance['transcript'])))
@@ -181,7 +189,7 @@ class SRTTranslator:
                 t2 = time.time()
                 logger.info('finished translating chunk %s via openai, took %s seconds', i, t2 - t1)
                 self.finished_chunks += 1
-                if per_bar and num_chunks:
+                if per_bar and num_chunks and st.session_state.get('bar', False):
                     st.session_state['bar'].progress(
                         min((per_bar * self.finished_chunks), 95),
                         text=f'Finished Translating Chunk No. {self.finished_chunks} Out of {num_chunks} Chunks'
@@ -208,7 +216,8 @@ class SRTTranslator:
                 _translations.update(result)
 
         amount_errors = len(self.failed_rows[self.TOKEN_LIMIT_ERROR]) + len(self.failed_rows[self.JSON_PARSING_ERROR])
-        st.session_state['bar'].progress(97, text=f'Fixing {amount_errors} Translation Error')
+        if st.session_state.get('bar'):
+            st.session_state['bar'].progress(97, text=f'Fixing {amount_errors} Translation Error')
 
         if token_limit_errors := self.failed_rows.pop(self.TOKEN_LIMIT_ERROR, False):
             num_rows_in_chunk = original_num_rows_in_chunk // 2
@@ -225,34 +234,18 @@ class SRTTranslator:
         """
         get the missing translations
         """
-        if constructor.missing_translations:
-            missing = [row for row in constructor.srts if not row.translation]
-            if len(missing) == 0:
-                return
-            logger.debug('found %s missing translations, translating them now', len(missing))
-            translated = await self._run_one_chunk(missing, None, None, None)
-            constructor.translated_text.update(translated)
-            constructor.add_translation_to_rows()
-
-            if len(missing) > 0:
-                await self.translate_missing(constructor=constructor)
-
+        missing = [row for row in constructor.srts if not row.translation]
+        if len(missing) == 0:
             return
+        logger.debug('found %s missing translations, translating them now', len(missing))
+        translated = await self._run_one_chunk(missing, None, None, None)
+        constructor.translated_text.update(translated)
+        constructor.add_translation_to_rows()
 
-    async def _translate_locally(self):
+        if len(missing) > 0:
+            await self.translate_missing(constructor=constructor)
 
-        API_URL = "https://api-inference.huggingface.co/models/facebook/mbart-large-50-many-to-many-mmt"
-        headers = {"Authorization": "Bearer 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"}
-        client = httpx.AsyncClient()
-
-        async def query(payload):
-            async with client:
-                response = await client.post(API_URL, headers=headers, json=payload)
-                return response.json()
-
-        output = query({
-            "inputs": "Меня зовут Вольфганг и я живу в Берлине",
-        })
+        return
 
     def _divide_rows(self, rows, num_rows_in_chunk: int) -> list[list[SRTBlock]]:
         return [rows[i:i + num_rows_in_chunk] for i in range(0, len(rows), num_rows_in_chunk)]
@@ -269,57 +262,3 @@ class SRTTranslator:
                 sublists.append([repr(row)])
 
         return ['\n'.join(sublist) for sublist in sublists]
-
-
-def parse_srt(srt_content: SrtString) -> list[SRTBlock]:
-    """
-    Parses an SRT file content string and returns a list of SRTBlock objects.
-
-    :param srt_content: SRT file content as a string.
-    :return: List of SRTBlock objects.
-    """
-
-    def srt_time_to_seconds(srt_time: str) -> float:
-        """
-        Converts SRT time format to seconds.
-        """
-        datetime_obj = datetime.strptime(srt_time, '%H:%M:%S,%f')
-        return datetime_obj.hour * 3600 + datetime_obj.minute * 60 + datetime_obj.second + datetime_obj.microsecond / 1e6
-
-    srt_rows = []
-    for block in filter(None, srt_content.split('\n\n')):
-        lines = block.split('\n')
-        if len(lines) >= 3:
-            index = int(lines[0])
-            start_end = lines[1].split(' --> ')
-            start = srt_time_to_seconds(start_end[0].replace('\r', ''))
-            end = srt_time_to_seconds(start_end[1].replace('\r', ''))
-            text = ' '.join(lines[2:])
-            srt_rows.append(SRTBlock(index, start, end, text))
-
-    return srt_rows
-
-
-async def main(num_rows_in_chunk):
-    t1 = time.time()
-    with open('/Users/yovel.c/PycharmProjects/services/engine/transcriptions/avatar.json', 'r') as f:
-        deepgram_data = json.loads(f.read())
-
-    translator = SRTTranslator(target_language='he', deepgram_results=deepgram_data, project_name='avatar')
-    _ret = await translator(num_rows_in_chunk=num_rows_in_chunk)
-    t2 = time.time()
-    logger.info(f'took {t2 - t1} seconds')
-    return _ret, t2 - t1
-
-
-async def from_srt(name, file_path, num_rows_in_chunk):
-    t1 = time.time()
-    with open(file_path, 'r') as f:
-        srt = f.read()
-
-    rows = parse_srt(srt)  # noqa
-    translator = SRTTranslator(target_language='he', project_name=name, rows=rows)
-    _ret = await translator(num_rows_in_chunk=num_rows_in_chunk)
-    t2 = time.time()
-    logger.info(f'took {t2 - t1} seconds')
-    return _ret, t2 - t1
