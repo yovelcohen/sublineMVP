@@ -3,11 +3,9 @@ import json
 import logging
 import time
 from collections import defaultdict
-from datetime import datetime
 from typing import NewType, cast, Literal
 
 import streamlit as st
-import httpx
 import tiktoken
 from openai import BadRequestError
 from srt import compose, Subtitle
@@ -20,44 +18,6 @@ logger = logging.getLogger(__name__)
 
 SrtString = NewType('SrtString', str)
 JsonStr = NewType('JsonStr', str)
-
-
-async def process_with_openai(lst, process_func, max_attempts=5, split_factor=2):
-    """
-    Process a list with an OpenAI API function, automatically retrying with smaller lists if the token limit is exceeded.
-
-    Args:
-    lst: The list to be processed.
-    process_func: The OpenAI API function to use for processing.
-    max_attempts: Maximum number of attempts to retry.
-    split_factor: Factor by which to split the list on each retry.
-
-    Returns:
-    The processed result.
-    """
-    attempt = 0
-    while attempt < max_attempts:
-        try:
-            # Attempt to process the list
-            return await process_func(lst)
-        except BadRequestError as e:
-            # Check if the error is due to token limit exceeded
-            if 'context_length_exceeded' in str(e):
-                if len(lst) <= 1:
-                    raise ValueError("Unable to process the list as it's already at minimum size.")
-                # Split the list into smaller parts
-                mid_index = len(lst) // split_factor
-                lst = lst[:mid_index]
-                attempt += 1
-                logger.info(f"Attempt {attempt}: List size reduced to {len(lst)} to avoid token limit.")
-            else:
-                # If the error is not due to token limit, re-raise it
-                raise
-        except Exception as e:
-            raise
-        await asyncio.sleep(1)  # Adding a short delay before retrying
-
-    raise RuntimeError("Maximum attempts reached without success.")
 
 
 class TranslatedSRT:

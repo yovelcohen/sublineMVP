@@ -12,7 +12,7 @@ from logic.function import SRTBlock
 import logging
 import streamlit.logger
 
-from logic.xml_reader import translate_xml
+from logic.xml_reader import translate_xml, extract_text_from_xml
 
 streamlit.logger.get_logger = logging.getLogger
 streamlit.logger.setup_formatter = None
@@ -46,11 +46,13 @@ async def translate(_name, _rows, _target_language, _model):
     st.session_state['bar'].progress(100, text='Done!')
 
 
-async def translate_via_xml(_name, _model, xml_string):
+async def translate_via_xml(_name, _model, xml_string, target_language):
     with st.spinner('Translating...'):
         t1 = time.time()
         logger.debug('starting translation request')
-        ret = await translate_xml(name=_name, model=_model, xml_data=xml_string, target_language=target_language)
+        root, parent_map, blocks = extract_text_from_xml(xml_string)
+        ret = await translate_xml(name=_name, model=_model, target_language=target_language,
+                                  blocks=blocks, root=root, parent_map=parent_map)
         st.session_state['name'] = ret
         t2 = time.time()
         logger.debug('finished translation, took %s seconds', t2 - t1)
@@ -60,38 +62,93 @@ def clean():
     del st.session_state['name']
 
 
-if st.session_state.get('stage', 0) != 1:
-    with st.form("Translate"):
-        name = st.text_input("Name")
-        type_ = st.selectbox("Type", ["Movie", "Series"])
-        uploaded_file = st.file_uploader("Upload a file", type=["srt", "xml", 'nfs'])
-        source_language = st.selectbox("Source Language", ["English", "Hebrew", 'French', 'Arabic', 'Spanish'])
-        target_language = st.selectbox("Target Language", ["Hebrew", 'French', 'Arabic', 'Spanish'])
-        model = st.selectbox('Model', ['good', 'best'], help="good is faster, best is more accurate")
+def parse_srt(uploaded_file):
+    stringio = StringIO(uploaded_file.getvalue().decode("utf-8"))
+    string_data = cast(SrtString, stringio.read())
+    rows = [SRTBlock(index=row.index, start=row.start, end=row.end, content=row.content)
+            for row in srt_lib.parse(string_data)]
+    return rows
 
-        assert source_language != target_language
-        submitted = st.form_submit_button("Translate")
-        if submitted:
-            bar = st.progress(0, 'Parsing File...')
-            st.session_state['bar'] = bar
-            if uploaded_file.name.endswith('srt'):
-                st.session_state['stage'] = 1
-                stringio = StringIO(uploaded_file.getvalue().decode("utf-8"))
-                string_data = cast(SrtString, stringio.read())
-                rows = [SRTBlock(index=row.index, start=row.start, end=row.end, content=row.content)
-                        for row in srt_lib.parse(string_data)]
-                asyncio.run(translate(_name=name, _rows=rows, _target_language=target_language, _model=model))
+
+def translate_form():
+    if st.session_state.get('stage', 0) != 1:
+        with st.form("Translate"):
+            name = st.text_input("Name")
+            type_ = st.selectbox("Type", ["Movie", "Series"])
+            uploaded_file = st.file_uploader("Upload a file", type=["srt", "xml", 'nfs'])
+            source_language = st.selectbox("Source Language", ["English", "Hebrew", 'French', 'Arabic', 'Spanish'])
+            target_language = st.selectbox("Target Language", ["Hebrew", 'French', 'Arabic', 'Spanish'])
+            model = st.selectbox('Model', ['good', 'best'], help="good is faster, best is more accurate")
+
+            assert source_language != target_language
+            submitted = st.form_submit_button("Translate")
+            if submitted:
+                bar = st.progress(0, 'Parsing File...')
+                st.session_state['bar'] = bar
+                if uploaded_file.name.endswith('srt'):
+                    st.session_state['stage'] = 1
+                    rows = parse_srt(uploaded_file=uploaded_file)
+                    asyncio.run(translate(_name=name, _rows=rows, _target_language=target_language, _model=model))
+                else:
+                    st.session_state['stage'] = 1
+                    string_data = uploaded_file.getvalue().decode("utf-8")
+                    asyncio.run(translate_via_xml(xml_string=string_data, _name=name, _model=model,
+                                                  target_language=target_language))
+
+        if st.session_state.get('name', False):
+            srt = st.session_state['name']
+            if isinstance(srt, TranslatedSRT):
+                text = srt.srt
             else:
-                st.session_state['stage'] = 1
-                string_data = uploaded_file.getvalue().decode("utf-8")
-                asyncio.run(translate_via_xml(xml_string=string_data, _name=name, _model=model))
+                text = srt
+            mime = uploaded_file.name.rsplit('.')[-1]
+            st.download_button('Download Translation', data=text, file_name=f'{name}_{target_language}.{mime}',
+                               type='primary', on_click=clean)
 
-    if st.session_state.get('name', False):
-        srt = st.session_state['name']
-        if isinstance(srt, TranslatedSRT):
-            text = srt.srt
-        else:
-            text = srt
-        mime = uploaded_file.name.rsplit('.')[-1]
-        st.download_button('Download Translation', data=text, file_name=f'{name}_{target_language}',
-                           mime=mime, type='primary', on_click=clean)
+
+def format_time(_time):
+    return str(_time)
+
+
+def parse_file(uploaded_file) -> list[SRTBlock]:
+    if uploaded_file.name.endswith('srt'):
+        st.session_state['stage'] = 1
+        rows = parse_srt(uploaded_file=uploaded_file)
+    else:
+        st.session_state['stage'] = 1
+        string_data = uploaded_file.getvalue().decode("utf-8")
+        root, parent_map, rows = extract_text_from_xml(string_data)
+    return rows
+
+
+def subtitle_viewer():
+    st.title("Subtitle Viewer")
+    with st.form("Translate"):
+        file1 = st.file_uploader("Upload a file 1", type=["srt", "xml", 'nfs'])
+        file2 = st.file_uploader("Upload a file 2", type=["srt", "xml", 'nfs'])
+
+        submitted = st.form_submit_button("Compare")
+        if submitted:
+            subtitles1, subtitles2 = parse_file(file1), parse_file(file2)
+            if len(subtitles1) != len(subtitles2):
+                st.write("Warning: Subtitle lists are not of the same length!")
+
+            for s1, s2 in zip(subtitles1, subtitles2):
+                col1, col2 = st.columns(2)
+
+                with col1:
+                    st.write(f"{format_time(s1.start)} --> {format_time(s1.end)}")
+                    st.write(s1.content)
+
+                with col2:
+                    st.write(f"{format_time(s2.start)} --> {format_time(s2.end)}")
+                    st.write(s2.content)
+
+
+page_names_to_funcs = {
+    "Translate": translate_form,
+    "Subtitle Viewer": subtitle_viewer,
+}
+
+demo_name = st.sidebar.selectbox("Choose app", page_names_to_funcs.keys())
+page_names_to_funcs[demo_name]()
