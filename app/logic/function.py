@@ -3,7 +3,6 @@ import json
 import logging
 import os
 import time
-from selectors import KqueueSelector
 from typing import TypedDict, Literal
 
 import json_repair

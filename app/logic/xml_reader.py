@@ -82,22 +82,25 @@ async def translate_xml(
     xml = cast(XMLString, ET.tostring(root, encoding='utf-8'))
     return xml.decode('utf-8')
 
-# if __name__ == '__main__':
-#     with open('/Users/yovel.c/PycharmProjects/services/sublineStreamlit/app/logic/episode_2_heb.nfs', 'r') as f:
-#         _xml_data = f.read()
-#     # Then set our logger in a normal way
-#     logging.basicConfig(
-#         level=logging.DEBUG,
-#         format="%(levelname)s %(asctime)s %(name)s:%(message)s",
-#         force=True,
-#     )  # Change these settings for your own purpose, but keep force=True at least.
-#
-#     streamlit_handler = logging.getLogger("streamlit")
-#     streamlit_handler.setLevel(logging.DEBUG)
-#     logging.getLogger('httpcore').setLevel(logging.INFO)
-#     logging.getLogger('openai').setLevel(logging.INFO)
-#     logging.getLogger('watchdog.observers').setLevel(logging.INFO)
-#     lang = 'he'
-#     _name = 'SuitsS01E02'
-#     processed_xml = asyncio.run(translate_xml(xml_data=_xml_data, target_language=lang, name=_name, model='good'))
-#     print(processed_xml)
+
+if __name__ == '__main__':
+    with open('/Users/yovel.c/PycharmProjects/services/sublineStreamlit/app/logic/suits0105_Hebrew.xml', 'r') as f:
+        _xml_data = f.read()
+    # Then set our logger in a normal way
+    logging.basicConfig(
+        level=logging.DEBUG,
+        format="%(levelname)s %(asctime)s %(name)s:%(message)s",
+        force=True,
+    )  # Change these settings for your own purpose, but keep force=True at least.
+
+    streamlit_handler = logging.getLogger("streamlit")
+    streamlit_handler.setLevel(logging.DEBUG)
+    logging.getLogger('httpcore').setLevel(logging.INFO)
+    logging.getLogger('openai').setLevel(logging.INFO)
+    logging.getLogger('watchdog.observers').setLevel(logging.INFO)
+    lang = 'he'
+    _name = 'SuitsS01E02'
+    _root, _parent_map, _blocks = extract_text_from_xml(xml_data=_xml_data)
+    processed_xml = asyncio.run(translate_xml(target_language=lang, name=_name, model='good', root=_root,
+                                              blocks=_blocks, parent_map=_parent_map))
+    print(processed_xml)
