@@ -3,6 +3,7 @@ import json
 import logging
 import os
 import time
+from selectors import KqueueSelector
 from typing import TypedDict, Literal
 
 import json_repair
@@ -106,7 +107,7 @@ except:
     api_key = os.environ['OPENAI_KEY']
 
 MODELS = {'good': 'gpt-3.5-turbo-1106', 'best': 'gpt-4-1106-preview'}
-client = openai.AsyncOpenAI(api_key=api_key, timeout=Timeout(60 * 5))
+client = openai.AsyncOpenAI(api_key=api_key, timeout=Timeout(60 * 3))
 
 
 async def make_openai_request(messages: list[dict[str, str]], seed: int = 99, model: str = 'best',
@@ -126,9 +127,8 @@ async def make_openai_request(messages: list[dict[str, str]], seed: int = 99, mo
         logger.exception('openai timeout error, sleeping for 5 seconds and retrying')
         await asyncio.sleep(5)
         if retry_count == 3:
-            st.error('openai API timed out 3 times, please try again later')
+            st.text('openai API timed out 3 times, please try again later')
             raise e
-        st.text('openai API timed out, sleeping for 5 seconds and retrying')
         return await make_openai_request(messages=messages, seed=seed, model=model, temperature=temperature,
                                          retry_count=retry_count + 1)
     except Exception as e:

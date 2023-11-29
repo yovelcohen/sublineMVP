@@ -145,9 +145,50 @@ def subtitle_viewer():
                     st.write(s2.content)
 
 
+def save_approved_translations():
+    ...
+
+
+def finetuner():
+    st.title("Finetuner")
+    submit = st.button('Submit Accepted Translations')
+    if submit:
+        save_approved_translations()
+
+    with st.form("Finetune"):
+        name = st.text('Series/Movie Name')
+        file1 = st.file_uploader("Upload a file 1", type=["srt", "xml", 'nfs'])
+        file2 = st.file_uploader("Upload a file 2", type=["srt", "xml", 'nfs'])
+        st.session_state['saved'] = []
+        submitted = st.form_submit_button("Compare")
+
+        if submitted:
+            subtitles1, subtitles2 = parse_file(file1), parse_file(file2)
+            if len(subtitles1) != len(subtitles2):
+                st.write("Warning: Subtitle lists are not of the same length!")
+            i = 0
+            for s1, s2 in zip(subtitles1, subtitles2):
+                col1, col2, col3 = st.columns([0.4, 0.4, 0.2])
+
+                with col1:
+                    st.write(f"{format_time(s1.start)} --> {format_time(s1.end)}")
+                    st.write(s1.content)
+
+                with col2:
+                    st.write(f"{format_time(s2.start)} --> {format_time(s2.end)}")
+                    st.write(s2.content)
+
+                with col3:
+                    agree = st.checkbox('Accept Translation', key=f'accept_{i}')
+                    if agree:
+                        st.session_state['saved'].append({'original': s1.content, 'translation': s2.content})
+                i += 1
+
+
 page_names_to_funcs = {
     "Translate": translate_form,
     "Subtitle Viewer": subtitle_viewer,
+    'Fine Tune': finetuner
 }
 
 demo_name = st.sidebar.selectbox("Choose app", page_names_to_funcs.keys())
