@@ -1,4 +1,5 @@
 import asyncio
+import datetime
 import time
 from typing import cast
 
@@ -106,8 +107,8 @@ def translate_form():
                                type='primary', on_click=clean)
 
 
-def format_time(_time):
-    return str(_time)
+def format_time(_time: datetime.timedelta):
+    return str(_time.total_seconds() * 1000)
 
 
 def parse_file(uploaded_file) -> list[SRTBlock]:

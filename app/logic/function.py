@@ -17,30 +17,48 @@ logger = logging.getLogger(__name__)
 encoder = tiktoken.encoding_for_model('gpt-4')
 
 
-class SRTRowDict(TypedDict):
-    index: int
-    start: str
-    end: str
-    text: str
-    translation: str | None
-    speaker: int | None
+def language_rules():
+    return """You are a proficient TV shows English to Hebrew Translator, Make sure you follow these rules and output a valid JSON, no matter what! 
 
+- Modern Slang Translation: Translate English slang into contextually appropriate Hebrew slang.
+Example 1: "Chill out" → Hebrew equivalent of "Relax" or "Take it easy."
+Example 2: "Ghosting" → Hebrew slang for ignoring or avoiding someone.
 
-class SRTBlock(Subtitle):
+- Gender-Specific Terms: Accurately translate gender-specific terms based on the context.
+Example 1: "He is a doctor" → "הוא רופא" (for male) or "היא רופאה" (for female).
+Example 2: "His book" → "הספר שלו" (for male) or "הספר שלה" (for female).
 
-    def __init__(self, index: int, start, end, content: str, speaker: int | None = None,
-                 num_tokens: int | None = None, translation: str | None = None):
-        super().__init__(index=index, start=start, end=end, content=content)
-        self.speaker = speaker
-        self.num_tokens = num_tokens
-        self.translation = translation
+- Idiomatic Expressions: Find Hebrew equivalents for English idioms.
+Example 1: "Piece of cake" → Hebrew idiom for something very easy.
+Example 2: "Break a leg" → Hebrew idiom for good luck.
 
-    def __repr__(self):
-        return f'{self.index}\n{self.content}'
+- Syntax Adaptation: Adjust sentence structure for Hebrew syntax.
+Example 1: "She loves dogs" (Subject-Verb-Object in English) → "היא אוהבת כלבים" (Hebrew structure).
+Example 2: "I am reading a book" → Adjusted to fit Hebrew verb-subject-object order.
 
-    def to_dict(self) -> SRTRowDict:
-        return SRTRowDict(index=self.index, speaker=self.speaker, start=timedelta_to_srt_timestamp(self.start),
-                          end=timedelta_to_srt_timestamp(self.end), text=self.content, translation=self.translation)
+- Root System Usage: Apply the Hebrew root system in translations.
+Example 1: English "write," "writer" → Hebrew roots for "write" (כתב) and related forms.
+Example 2: English "run," "runner" → Hebrew roots for "run" (רוץ) and related forms.
+
+- Consistent Transliteration: Keep transliterations of names and terms consistent.
+Example 1: "John" always transliterated the same way in Hebrew.
+Example 2: Technical terms like "Internet" consistently transliterated.
+
+- Nikkud for Clarity: Use Nikkud where necessary for clear understanding.
+Example 1: Using Nikkud to distinguish between "בָּנִים" (sons) and "בָּנִין" (building).
+Example 2: Clarifying "חָמוֹר" (donkey) vs. "חָמוּר" (severe) with Nikkud.
+
+- Subtitle Length and Timing: Keep subtitles concise and timed well.
+Example 1: Shortening a lengthy English sentence to fit the Hebrew screen time.
+Example 2: Dividing a long English dialogue into shorter, readable Hebrew subtitles.
+
+- Feedback Integration: Continuously improve based on viewer feedback.
+Example 1: Adjusting translations that viewers find unclear or inaccurate.
+Example 2: Updating phrases based on recurring audience suggestions.
+
+- Verb Conjugation Accuracy: Correctly conjugate Hebrew verbs.
+Example 1: Translating "I ate" to "אכלתי" (past tense, first person singular).
+Example 2: "They will go" to "הם ילכו" (future tense, third person plural)."""
 
 
 def validate_and_parse_answer(answer: Choice, preferred_suffix='}'):
@@ -83,12 +101,13 @@ def validate_and_parse_answer(answer: Choice, preferred_suffix='}'):
         return fixed_json, -1
 
     data = fixed_json['translation'] if 'translation' in fixed_json else fixed_json
+    data = {k:v for k,v in data.items() if k.isdigit()}
     last_index = -1
     if len(data) > 1:
-        last_index = sorted(tuple(data), reverse=True)[0]
         # we don't trust the fixer or openai, so we remove the last index,
         # which is usually a shitty translation anyway.
-        data.pop(last_index)
+        key, val = data.popitem()
+        last_index = key
     try:
         last_index = int(last_index)
     except:
@@ -135,7 +154,7 @@ async def make_openai_request(messages: list[dict[str, str]], seed: int = 99, mo
 
 
 async def translate_via_openai_func(
-        rows: list[SRTBlock],
+        rows: list['SRTBlock'],
         target_language: str,
         tokens_safety_buffer: int = 400,
         model: Literal['best', 'good'] = 'best'
@@ -152,8 +171,7 @@ async def translate_via_openai_func(
     if not rows:
         return {}, -1
     messages = [
-        {"role": 'system',
-         'content': "You are a proficient TV shows translator, you notice subtle target language nuances like names, slang... and you are able to translate them. Make sure you output a valid JSON, no matter what!"},
+        {"role": 'system', 'content': language_rules()},
         {'role': 'user',
          'content': f'Translate the each row of this subtitles to {target_language}, And return the translated rows by their corresponding index as valid JSON structure. \nRows:\n {json.dumps({row.index: row.content for row in rows})}'},
     ]

@@ -4,25 +4,32 @@ import xml.etree.ElementTree as ET
 from datetime import timedelta
 from typing import cast, Literal
 
-from logic.constructor import SRTTranslator
-from logic.function import SRTBlock
+from logic.constructor import SRTTranslator, SRTBlock
 
 XMLString = str | bytes
 
 
-def extract_texts(element: ET.Element, texts: list[str], parent_map: dict[str, ET.Element]) -> None:
+def parse_ttml_timestamp(timestamp_str):
+    if not timestamp_str:
+        return
+    milliseconds_str = timestamp_str.rstrip('t')
+    milliseconds = int(milliseconds_str)
+    return timedelta(milliseconds=milliseconds)
+
+
+def extract_texts(element: ET.Element, elements: list, parent_map: dict[str, ET.Element]) -> None:
     """
     Recursively extract text from an XML element and its children.
 
     :param element: The current XML element.
-    :param texts: list to store the extracted texts.
+    :param elements: list to store the extracted Element objects.
     :param parent_map: Map to store the relationship between texts and their parent elements.
     """
     if element.text and element.text.strip():
-        texts.append(element.text)
+        elements.append(element)
         parent_map[element.text] = element
     for child in element:
-        extract_texts(child, texts, parent_map)
+        extract_texts(child, elements, parent_map)
 
 
 def replace_texts(text_to_translation: dict[str, str], parent_map: dict[str, ET.Element]) -> None:
@@ -32,6 +39,7 @@ def replace_texts(text_to_translation: dict[str, str], parent_map: dict[str, ET.
     :param text_to_translation: mapping from text to its translation
     :param parent_map: Map containing the relationship between original texts and their parent elements.
     """
+    parent_map = {k.strip(): v for k, v in parent_map.items()}
     for original_text, translated_text in text_to_translation.items():
         parent_map[original_text].text = translated_text
 
@@ -46,10 +54,15 @@ async def translate(
 
 def extract_text_from_xml(xml_data: str | XMLString):
     root = ET.fromstring(xml_data)
-    parent_map, texts_to_translate = {}, []
-    extract_texts(root, texts_to_translate, parent_map)
-    blocks = [SRTBlock(content=text, index=i, start=timedelta(seconds=1), end=timedelta(seconds=1))
-              for i, text in enumerate(texts_to_translate)]
+    parent_map, elements = {}, []
+    extract_texts(root, elements, parent_map)
+    ids = [elem.attrib[key] for elem in elements for key in elem.attrib if key.endswith('id')]
+    blocks = [
+        SRTBlock(content=elem.text.strip(), index=pk, style=elem.attrib.get('style'),
+                 region=elem.attrib.get('region'), start=parse_ttml_timestamp(elem.attrib.get('begin')),
+                 end=parse_ttml_timestamp(elem.attrib.get('end')))
+        for pk, elem in zip(ids, elements)
+    ]
     return root, parent_map, blocks
 
 
@@ -83,24 +96,24 @@ async def translate_xml(
     return xml.decode('utf-8')
 
 
-if __name__ == '__main__':
-    with open('/Users/yovel.c/PycharmProjects/services/sublineStreamlit/app/logic/suits0105_Hebrew.xml', 'r') as f:
-        _xml_data = f.read()
-    # Then set our logger in a normal way
-    logging.basicConfig(
-        level=logging.DEBUG,
-        format="%(levelname)s %(asctime)s %(name)s:%(message)s",
-        force=True,
-    )  # Change these settings for your own purpose, but keep force=True at least.
-
-    streamlit_handler = logging.getLogger("streamlit")
-    streamlit_handler.setLevel(logging.DEBUG)
-    logging.getLogger('httpcore').setLevel(logging.INFO)
-    logging.getLogger('openai').setLevel(logging.INFO)
-    logging.getLogger('watchdog.observers').setLevel(logging.INFO)
-    lang = 'he'
-    _name = 'SuitsS01E02'
-    _root, _parent_map, _blocks = extract_text_from_xml(xml_data=_xml_data)
-    processed_xml = asyncio.run(translate_xml(target_language=lang, name=_name, model='good', root=_root,
-                                              blocks=_blocks, parent_map=_parent_map))
-    print(processed_xml)
+# if __name__ == '__main__':
+#     with open('/Users/yovel.c/PycharmProjects/services/sublineStreamlit/app/logic/suits0105_Hebrew.xml', 'r') as f:
+#         _xml_data = f.read()
+#     # Then set our logger in a normal way
+#     logging.basicConfig(
+#         level=logging.DEBUG,
+#         format="%(levelname)s %(asctime)s %(name)s:%(message)s",
+#         force=True,
+#     )  # Change these settings for your own purpose, but keep force=True at least.
+#
+#     streamlit_handler = logging.getLogger("streamlit")
+#     streamlit_handler.setLevel(logging.DEBUG)
+#     logging.getLogger('httpcore').setLevel(logging.INFO)
+#     logging.getLogger('openai').setLevel(logging.INFO)
+#     logging.getLogger('watchdog.observers').setLevel(logging.INFO)
+#     lang = 'he'
+#     _name = 'SuitsS01E02'
+#     _root, _parent_map, _blocks = extract_text_from_xml(xml_data=_xml_data)
+#     processed_xml = asyncio.run(translate_xml(target_language=lang, name=_name, model='good', root=_root,
+#                                               blocks=_blocks, parent_map=_parent_map))
+#     print(processed_xml)
