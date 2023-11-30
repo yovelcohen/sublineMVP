@@ -1,6 +1,7 @@
 import asyncio
 import json
 import logging
+import re
 import time
 from collections import defaultdict
 from datetime import timedelta
@@ -142,8 +143,9 @@ class SRTBlock(Subtitle):
 
 
 class TranslatedSRT:
-    def __init__(self, name: str, srts: list[SRTBlock], translated_text: dict[str, str]):
+    def __init__(self, name: str, target_language: str, srts: list[SRTBlock], translated_text: dict[str, str]):
         self.name = name
+        self.target_language = target_language
         self._srts = sorted([s for s in srts if s.index], key=lambda row: row.index)
         self.translated_text = translated_text
         self.missing_translations = False
@@ -158,7 +160,10 @@ class TranslatedSRT:
             Subtitle(index=row.index, start=row.start, end=row.end, content=row.translation)
             for row in self._srts
         ]
-        return cast(SrtString, compose(rows))
+        ret = compose(rows)
+        if self.target_language in ('Hebrew', 'heb', 'he'):
+            ret = self._correct_punctuation_alignment(ret)
+        return cast(SrtString, ret)
 
     @property
     def json(self) -> JsonStr:
@@ -185,6 +190,20 @@ class TranslatedSRT:
         if missing_count:
             logger.info(f"missing {missing_count} translations")
             self.missing_translations = True
+
+    def _correct_punctuation_alignment(self, subtitles: str | SrtString):
+        # Splitting the subtitles into lines
+        lines = subtitles.split('\n')
+
+        corrected_lines = []
+        for line in lines:
+            # Fixing punctuation alignment for Hebrew text
+            line = re.sub(r'(\S)([,.])', r'\2\1', line)
+            corrected_lines.append(line)
+
+        # Joining the corrected lines back into a single string
+        corrected_subtitles = '\n'.join(corrected_lines)
+        return corrected_subtitles
 
 
 class SRTTranslator:
@@ -372,8 +391,6 @@ if __name__ == '__main__':
     logging.getLogger('watchdog.observers').setLevel(logging.INFO)
     lang = 'Hebrew'
     ntop = {
-        'suits0101': '/Users/yovel.c/PycharmProjects/services/sublineStreamlit/suits/Suits - 1x01 - Pilot.720p.WEB-DL.en.srt',
-        'suits0102': '/Users/yovel.c/PycharmProjects/services/sublineStreamlit/suits/Suits - 1x02 - Errors and Omissions.HDTV.FQM.en.srt',
-        'suits0103': '/Users/yovel.c/PycharmProjects/services/sublineStreamlit/suits/Suits - 1x03 - Inside Track.HDTV.CTU.en.srt',
+        'suits0102': '/Users/yovel.c/PycharmProjects/services/sublineStreamlit/suits/Suits.S01E02.Errors And Omissions.720p.WEB-DL.DD5.1.H.264-TB.srt'
     }
     asyncio.run(main(ntop, lang))
