@@ -5,13 +5,14 @@ from typing import cast
 
 import streamlit as st
 from io import StringIO
+
+import logging
+import streamlit.logger
+
 import srt as srt_lib
 from streamlit.runtime.uploaded_file_manager import UploadedFile
 
 from logic.constructor import SrtString, SRTTranslator, SubtitlesResults, SRTBlock
-
-import logging
-import streamlit.logger
 
 from logic.xml_reader import translate_xml, extract_text_from_xml
 
@@ -135,6 +136,10 @@ def subtitle_viewer():
     st.title("Subtitle Viewer")
     rows_per_page = 10  # Adjust the number of rows per page as needed
 
+    # Initialize 'start_row' in session state
+    if 'start_row' not in st.session_state:
+        st.session_state['start_row'] = 0
+
     with st.form("file_upload"):
         files: list[UploadedFile] = st.file_uploader("Upload Subtitle Files", type=["srt", "xml", 'nfs'],
                                                      accept_multiple_files=True)
@@ -147,21 +152,16 @@ def subtitle_viewer():
     if 'subtitles_lists' in st.session_state and st.session_state['subtitles_lists']:
         subtitles_lists = st.session_state['subtitles_lists']
 
-        # Initialize session state for pagination
-        for i in range(len(subtitles_lists)):
-            if f'start_row_{i}' not in st.session_state:
-                st.session_state[f'start_row_{i}'] = 0
-
         columns = st.columns(len(subtitles_lists))
         for i, (col, subtitles) in enumerate(zip(columns, subtitles_lists)):
-            view_vol(col, subtitles, st.session_state[f'start_row_{i}'], rows_per_page)
+            view_vol(col, subtitles, st.session_state['start_row'], rows_per_page)
 
-            # Pagination buttons
-            prev, _, next = col.columns([1, 2, 1])
-            if next.button("Next", key=f'next_{i}'):
-                st.session_state[f'start_row_{i}'] += rows_per_page
-            if prev.button("Previous", key=f'prev_{i}'):
-                st.session_state[f'start_row_{i}'] = max(0, st.session_state[f'start_row_{i}'] - rows_per_page)
+        # Global Pagination buttons
+        prev, _, _next = st.columns([1, 2, 1])
+        if _next.button("Next"):
+            st.session_state['start_row'] += rows_per_page
+        if prev.button("Previous"):
+            st.session_state['start_row'] = max(0, st.session_state['start_row'] - rows_per_page)
 
 
 def save_approved_translations():
