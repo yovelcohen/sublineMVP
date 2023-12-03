@@ -159,4 +159,5 @@ cython_debug/
 *.json
 *.wav
 *.srt
-/Episode 2
+/srts/
+/samples/

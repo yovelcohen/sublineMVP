@@ -138,7 +138,7 @@ CyrillicLetters = [" ",  # 0x20
                    "f",  # 0xca
                    "g",  # 0xcb
                    "h",  # 0xcc
-                   "i",  # 0xcd
+                   "chunk_id",  # 0xcd
                    "j",  # 0xce
                    "k",  # 0xcf
                    "l",  # 0xd1
@@ -262,7 +262,7 @@ CyrillicCodes = ['\x20',  # space
                  '\xca',  # f
                  '\xcb',  # g
                  '\xcc',  # h
-                 '\xcd',  # i
+                 '\xcd',  # chunk_id
                  '\xce',  # j
                  '\xcf',  # k
                  '\xd1',  # l
@@ -700,12 +700,12 @@ def autoDetect(subtitle_file):
 
 
 def main():
-    usage = "usage: python readPac.py [options] pac_file"
+    usage = "usage: python readPac.py [num_options] pac_file"
     availableOutputs = ["SRT", "SRT"]
     parser = OptionParser(usage=usage)
     parser.add_option("-e", "--encoding", dest="codePage", help="encoding: latin, thai, chinese, cyrillic, utf-8")
     parser.add_option("-t", "--text", action="store_true", dest="textOnly", help="Write out text only")
-    parser.add_option("-f", "--outformat", dest="outFormat", help="Define output format, options: SRT")
+    parser.add_option("-f", "--outformat", dest="outFormat", help="Define output format, num_options: SRT")
     parser.add_option("-o", "--outfile", dest="outFile", help="Output to file, specify filename")
     (options, args) = parser.parse_args()
     if options.outFormat.upper() not in availableOutputs:
@@ -730,7 +730,7 @@ def main():
         paragraphs = autoDetect(subtitle_file)
 
     ##Determine outputs
-    ##print options.outFile
+    ##print num_options.outFile
     if options.textOnly:
         writeOut(paragraphs, "text", options.outFile)
     elif options.outFormat:

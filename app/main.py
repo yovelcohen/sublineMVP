@@ -6,9 +6,9 @@ from typing import cast
 import streamlit as st
 from io import StringIO
 import srt as srt_lib
+from streamlit.runtime.uploaded_file_manager import UploadedFile
 
-from logic.constructor import SrtString, SRTTranslator, TranslatedSRT
-from logic.function import SRTBlock
+from logic.constructor import SrtString, SRTTranslator, SubtitlesResults, SRTBlock
 
 import logging
 import streamlit.logger
@@ -36,11 +36,12 @@ logging.getLogger('watchdog.observers').setLevel(logging.INFO)
 logger = logging.getLogger(__name__)
 
 
-async def translate(_name, _rows, _target_language, _model):
+async def translate(_name, _rows, _target_language, _model, _num_versions: int | None = None):
     t1 = time.time()
     logger.debug('starting translation request')
+    _num_versions = None if _num_versions == 1 else _num_versions
     translator = SRTTranslator(target_language=_target_language, project_name=_name, rows=_rows, model=_model)
-    _ret = await translator(num_rows_in_chunk=50)
+    _ret = await translator(num_rows_in_chunk=50, num_options=_num_versions)
     st.session_state['name'] = _ret
     t2 = time.time()
     logger.debug('finished translation, took %s seconds', t2 - t1)
@@ -51,7 +52,7 @@ async def translate_via_xml(_name, _model, xml_string, target_language):
     with st.spinner('Translating...'):
         t1 = time.time()
         logger.debug('starting translation request')
-        root, parent_map, blocks = extract_text_from_xml(xml_string)
+        root, parent_map, blocks = extract_text_from_xml(xml_data=xml_string)
         ret = await translate_xml(name=_name, model=_model, target_language=target_language,
                                   blocks=blocks, root=root, parent_map=parent_map)
         st.session_state['name'] = ret
@@ -80,6 +81,7 @@ def translate_form():
             source_language = st.selectbox("Source Language", ["English", "Hebrew", 'French', 'Arabic', 'Spanish'])
             target_language = st.selectbox("Target Language", ["Hebrew", 'French', 'Arabic', 'Spanish'])
             model = st.selectbox('Model', ['good', 'best'], help="good is faster, best is more accurate")
+            num_versions = st.selectbox('Amount Of Options', [1, 2, 3], help='How many translation versions to return')
 
             assert source_language != target_language
             submitted = st.form_submit_button("Translate")
@@ -89,7 +91,8 @@ def translate_form():
                 if uploaded_file.name.endswith('srt'):
                     st.session_state['stage'] = 1
                     rows = parse_srt(uploaded_file=uploaded_file)
-                    asyncio.run(translate(_name=name, _rows=rows, _target_language=target_language, _model=model))
+                    asyncio.run(translate(_name=name, _rows=rows, _target_language=target_language, _model=model,
+                                          _num_versions=num_versions))
                 else:
                     st.session_state['stage'] = 1
                     string_data = uploaded_file.getvalue().decode("utf-8")
@@ -98,8 +101,8 @@ def translate_form():
 
         if st.session_state.get('name', False):
             srt = st.session_state['name']
-            if isinstance(srt, TranslatedSRT):
-                text = srt.srt
+            if isinstance(srt, SubtitlesResults):
+                text = srt.to_srt(target_language=target_language)
             else:
                 text = srt
             mime = uploaded_file.name.rsplit('.')[-1]
@@ -118,78 +121,57 @@ def parse_file(uploaded_file) -> list[SRTBlock]:
     else:
         st.session_state['stage'] = 1
         string_data = uploaded_file.getvalue().decode("utf-8")
-        root, parent_map, rows = extract_text_from_xml(string_data)
+        root, parent_map, rows = extract_text_from_xml(xml_data=string_data)
     return rows
 
 
 def subtitle_viewer():
+    def view_vol(_col, rows, start, _rows_per_page):
+        with _col:
+            for row in rows[start:start + _rows_per_page]:
+                st.write(f"{format_time(row.start)} --> {format_time(row.end)}")
+                st.write(row.content)
+
     st.title("Subtitle Viewer")
-    with st.form("Translate"):
-        file1 = st.file_uploader("Upload a file 1", type=["srt", "xml", 'nfs'])
-        file2 = st.file_uploader("Upload a file 2", type=["srt", "xml", 'nfs'])
+    rows_per_page = 10  # Adjust the number of rows per page as needed
 
+    with st.form("file_upload"):
+        files: list[UploadedFile] = st.file_uploader("Upload Subtitle Files", type=["srt", "xml", 'nfs'],
+                                                     accept_multiple_files=True)
         submitted = st.form_submit_button("Compare")
+
         if submitted:
-            subtitles1, subtitles2 = parse_file(file1), parse_file(file2)
-            if len(subtitles1) != len(subtitles2):
-                st.write("Warning: Subtitle lists are not of the same length!")
+            subtitles_lists = [parse_file(file) for file in files]
+            st.session_state['subtitles_lists'] = subtitles_lists
 
-            for s1, s2 in zip(subtitles1, subtitles2):
-                col1, col2 = st.columns(2)
+    if 'subtitles_lists' in st.session_state and st.session_state['subtitles_lists']:
+        subtitles_lists = st.session_state['subtitles_lists']
 
-                with col1:
-                    st.write(f"{format_time(s1.start)} --> {format_time(s1.end)}")
-                    st.write(s1.content)
+        # Initialize session state for pagination
+        for i in range(len(subtitles_lists)):
+            if f'start_row_{i}' not in st.session_state:
+                st.session_state[f'start_row_{i}'] = 0
 
-                with col2:
-                    st.write(f"{format_time(s2.start)} --> {format_time(s2.end)}")
-                    st.write(s2.content)
+        columns = st.columns(len(subtitles_lists))
+        for i, (col, subtitles) in enumerate(zip(columns, subtitles_lists)):
+            view_vol(col, subtitles, st.session_state[f'start_row_{i}'], rows_per_page)
+
+            # Pagination buttons
+            prev, _, next = col.columns([1, 2, 1])
+            if next.button("Next", key=f'next_{i}'):
+                st.session_state[f'start_row_{i}'] += rows_per_page
+            if prev.button("Previous", key=f'prev_{i}'):
+                st.session_state[f'start_row_{i}'] = max(0, st.session_state[f'start_row_{i}'] - rows_per_page)
 
 
 def save_approved_translations():
     ...
 
 
-def finetuner():
-    st.title("Finetuner")
-    submit = st.button('Submit Accepted Translations')
-    if submit:
-        save_approved_translations()
-
-    with st.form("Finetune"):
-        name = st.text('Series/Movie Name')
-        file1 = st.file_uploader("Upload a file 1", type=["srt", "xml", 'nfs'])
-        file2 = st.file_uploader("Upload a file 2", type=["srt", "xml", 'nfs'])
-        st.session_state['saved'] = []
-        submitted = st.form_submit_button("Compare")
-
-        if submitted:
-            subtitles1, subtitles2 = parse_file(file1), parse_file(file2)
-            if len(subtitles1) != len(subtitles2):
-                st.write("Warning: Subtitle lists are not of the same length!")
-            i = 0
-            for s1, s2 in zip(subtitles1, subtitles2):
-                col1, col2, col3 = st.columns([0.4, 0.4, 0.2])
-
-                with col1:
-                    st.write(f"{format_time(s1.start)} --> {format_time(s1.end)}")
-                    st.write(s1.content)
-
-                with col2:
-                    st.write(f"{format_time(s2.start)} --> {format_time(s2.end)}")
-                    st.write(s2.content)
-
-                with col3:
-                    agree = st.checkbox('Accept Translation', key=f'accept_{i}')
-                    if agree:
-                        st.session_state['saved'].append({'original': s1.content, 'translation': s2.content})
-                i += 1
-
-
 page_names_to_funcs = {
     "Translate": translate_form,
     "Subtitle Viewer": subtitle_viewer,
-    'Fine Tune': finetuner
+    # 'Fine Tune': finetuner
 }
 
 demo_name = st.sidebar.selectbox("Choose app", page_names_to_funcs.keys())
