@@ -7,11 +7,21 @@ from logic.consts import LanguageCode, XMLString
 
 
 def parse_ttml_timestamp(timestamp_str):
-    if not timestamp_str:
-        return
     milliseconds_str = timestamp_str.rstrip('t')
     milliseconds = int(milliseconds_str)
     return timedelta(milliseconds=milliseconds)
+
+
+def replace_texts(text_to_translation: dict[str, str], parent_map: dict[str, ET.Element]) -> None:
+    """
+    Replace the original texts in the XML with translated texts.
+
+    :param text_to_translation: mapping from text to its translation
+    :param parent_map: Map containing the relationship between original texts and their parent elements.
+    """
+    parent_map = {k.strip(): v for k, v in parent_map.items()}
+    for original_text, translated_text in text_to_translation.items():
+        parent_map[original_text].text = translated_text
 
 
 def extract_texts(*, element: ET.Element, elements: list, parent_map: dict[str, ET.Element]) -> None:
@@ -29,16 +39,18 @@ def extract_texts(*, element: ET.Element, elements: list, parent_map: dict[str, 
         extract_texts(element=child, elements=elements, parent_map=parent_map)
 
 
-def replace_texts(text_to_translation: dict[str, str], parent_map: dict[str, ET.Element]) -> None:
-    """
-    Replace the original texts in the XML with translated texts.
-
-    :param text_to_translation: mapping from text to its translation
-    :param parent_map: Map containing the relationship between original texts and their parent elements.
-    """
-    parent_map = {k.strip(): v for k, v in parent_map.items()}
-    for original_text, translated_text in text_to_translation.items():
-        parent_map[original_text].text = translated_text
+def extract_text_from_xml(*, xml_data: str | XMLString):
+    root = ET.fromstring(xml_data)
+    parent_map, elements = {}, []
+    extract_texts(element=root, elements=elements, parent_map=parent_map)
+    ids = [elem.attrib[key] for elem in elements for key in elem.attrib if key.endswith('id')]
+    blocks = [
+        SRTBlock(content=elem.text.strip(), index=pk, style=elem.attrib.get('style'),
+                 region=elem.attrib.get('region'), start=parse_ttml_timestamp(elem.attrib['begin']),
+                 end=parse_ttml_timestamp(elem.attrib['end']))
+        for pk, elem in zip(ids, elements)
+    ]
+    return root, parent_map, blocks
 
 
 async def translate(
@@ -47,20 +59,6 @@ async def translate(
     translator = SRTTranslator(project_name=name, target_language=target_language, rows=blocks, model=model)
     ret = await translator(num_rows_in_chunk=100)
     return {block.content: block.translation for block in ret.rows}
-
-
-def extract_text_from_xml(*, xml_data: str | XMLString):
-    root = ET.fromstring(xml_data)
-    parent_map, elements = {}, []
-    extract_texts(element=root, elements=elements, parent_map=parent_map)
-    ids = [elem.attrib[key] for elem in elements for key in elem.attrib if key.endswith('id')]
-    blocks = [
-        SRTBlock(content=elem.text.strip(), index=pk, style=elem.attrib.get('style'),
-                 region=elem.attrib.get('region'), start=parse_ttml_timestamp(elem.attrib.get('begin')),
-                 end=parse_ttml_timestamp(elem.attrib.get('end')))
-        for pk, elem in zip(ids, elements)
-    ]
-    return root, parent_map, blocks
 
 
 async def translate_xml(
