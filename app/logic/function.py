@@ -1,8 +1,11 @@
 import asyncio
+import contextvars
+import copy
 import json
 import logging
 import os
 import time
+from contextvars import ContextVar
 from typing import TypedDict, Literal
 
 import json_repair
@@ -58,8 +61,9 @@ Example 1: Shortening a lengthy English sentence to fit the Hebrew screen time.
 Example 2: Dividing a long English dialogue into shorter, readable Hebrew subtitles.
 
 - Verb Conjugation Accuracy: Correctly conjugate Hebrew verbs.
-Example 1: Translating "I ate" to "אכלתי" (past tense, first person singular).
-Example 2: "They will go" to "הם ילכו" (future tense, third person plural)."""
+Example 1: Translating "I ate" → "אכלתי" (past tense, first person singular).
+Example 2: "They will go" → "הם ילכו" (future tense, third person plural).
+Example 3: "You should have never gone there" → ״לא היית צריך ללכת לשם״"""
 
 
 def validate_and_parse_answer(answer: Choice, preferred_suffix='}'):
@@ -127,6 +131,15 @@ except:
 
 MODELS = {'good': 'gpt-3.5-turbo-1106', 'best': 'gpt-4-1106-preview'}
 client = openai.AsyncOpenAI(api_key=api_key, timeout=Timeout(60 * 3))
+total_stats = dict()
+
+
+def report_stats(openai_resp):
+    stats = openai_resp.usage.model_dump()
+    logger.info('openai stats: %s', stats)
+    for k, v in stats.items():
+        new_val = total_stats.get(k, 0) + v
+        total_stats[k] = new_val
 
 
 async def make_openai_request(
@@ -167,6 +180,7 @@ async def make_openai_request(
         func_resp = await client.chat.completions.create(**req)
         t2 = time.time()
         logger.info('finished openai request, took %s seconds', t2 - t1)
+        report_stats(func_resp)
         ret = {}
         for v, choice in enumerate(func_resp.choices, start=1):
             answer, last_idx = validate_and_parse_answer(answer=choice, preferred_suffix=preferred_suffix)
@@ -220,5 +234,3 @@ async def translate_via_openai_func(
         raise TokenCountTooHigh(f'openai token limit is 16k, and the data token cost is {data_token_cost}, '
                                 f'please reduce the number of rows')
     return await make_openai_request(messages=messages, seed=99, model=model, temperature=.1, num_options=num_options)
-
-# TODO; adjust for num_options

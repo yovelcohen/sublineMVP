@@ -13,7 +13,7 @@ import tiktoken
 from pydantic import BaseModel, model_validator, Field
 from srt import compose, timedelta_to_srt_timestamp, make_legal_content, sort_and_reindex
 
-from logic.function import translate_via_openai_func, TokenCountTooHigh
+from logic.function import translate_via_openai_func, TokenCountTooHigh, total_stats
 from logic.consts import LanguageCode, SrtString, JsonStr, Version
 
 logger = logging.getLogger(__name__)
@@ -74,8 +74,8 @@ TranslationResults = DefaultDict[LanguageCode, Annotated[dict, Field(default_fac
 class SRTBlock(Subtitle):
     index: int | str
     translations: TranslationResults = Field(default_factory=lambda: defaultdict(dict))
-    start: timedelta
-    end: timedelta
+    start: timedelta | None = None
+    end: timedelta | None = None
     content: str
     speaker: int | None = None
     region: str | None = None
@@ -96,6 +96,14 @@ class SRTBlock(Subtitle):
         return SRTRowDict(index=self.index, speaker=self.speaker, start=timedelta_to_srt_timestamp(self.start),
                           end=timedelta_to_srt_timestamp(self.end), text=self.content, translation=self.translation)
 
+    def get_translation(self, target_language: LanguageCode, version: Version = None) -> str:
+        if not version:
+            return list(self.translations.get(target_language, {}).values())[0]
+        output_content = self.translations[target_language].get(version)
+        if not output_content:
+            output_content = list(self.translations[target_language].values())[0]
+        return output_content
+
     def to_srt(self, strict=True, eol="\n", target_language=None, version=None):
         r"""
         Convert the current :py:class:`Subtitle` to an SRT block.
@@ -106,15 +114,13 @@ class SRTBlock(Subtitle):
         :param str eol: The end of line string to use (default "\\n")
         :param target_language: if provided, tries to get the content string by language in self.translations_result
         :param version: if provided, tries to get the content string by version in self.translations_result
-        
+
         :returns: The metadata of the current :py:class:`Subtitle` object as an
                   SRT formatted subtitle block
         :rtype: str
         """
         if target_language:
-            output_content = self.translations[target_language].get(version)
-            if not output_content:
-                output_content = list(self.translations[target_language].values())[0]
+            output_content = self.get_translation(target_language=target_language, version=version)
         else:
             output_content = self.content
 
@@ -480,6 +486,9 @@ async def main(name_to_fpath, _target_language):
 #     logging.getLogger('watchdog.observers').setLevel(logging.INFO)
 #     lang = 'Hebrew'
 #     ntop = {
-#         'TheOffice0409': '/Users/yovel.c/PycharmProjects/services/sublineStreamlit/srts/theOffice0409/original_english.srt'
+#         'TheBigShort': '/Users/yovel.c/PycharmProjects/services/sublineStreamlit/srts/theBigShort/original_en.srt'
 #     }
 #     asyncio.run(main(ntop, lang))
+# TODO:
+#   - Add Age Limit to AI
+#   - Add Series Category (Comedy/Action/Drama/Cartoon Kids)

@@ -7,6 +7,8 @@ from logic.consts import LanguageCode, XMLString
 
 
 def parse_ttml_timestamp(timestamp_str):
+    if not timestamp_str:
+        return
     milliseconds_str = timestamp_str.rstrip('t')
     milliseconds = int(milliseconds_str)
     return timedelta(milliseconds=milliseconds)
@@ -46,8 +48,8 @@ def extract_text_from_xml(*, xml_data: str | XMLString):
     ids = [elem.attrib[key] for elem in elements for key in elem.attrib if key.endswith('id')]
     blocks = [
         SRTBlock(content=elem.text.strip(), index=pk, style=elem.attrib.get('style'),
-                 region=elem.attrib.get('region'), start=parse_ttml_timestamp(elem.attrib['begin']),
-                 end=parse_ttml_timestamp(elem.attrib['end']))
+                 region=elem.attrib.get('region'), start=parse_ttml_timestamp(elem.attrib.get('begin')),
+                 end=parse_ttml_timestamp(elem.attrib.get('end')))
         for pk, elem in zip(ids, elements)
     ]
     return root, parent_map, blocks
@@ -58,7 +60,7 @@ async def translate(
 ) -> dict[str, str]:
     translator = SRTTranslator(project_name=name, target_language=target_language, rows=blocks, model=model)
     ret = await translator(num_rows_in_chunk=100)
-    return {block.content: block.translation for block in ret.rows}
+    return {block.content: block.get_translation(target_language=target_language) for block in ret.rows}
 
 
 async def translate_xml(
