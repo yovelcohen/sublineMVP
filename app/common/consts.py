@@ -1,7 +1,7 @@
 from typing import NewType
 
 XMLString = str | bytes
+LanguageCode = NewType('LanguageCode', str)
 SrtString = NewType('SrtString', str)
 JsonStr = NewType('JsonStr', str)
-LanguageCode = NewType('LanguageCode', str)
-Version = NewType('Version', int)
+Version = NewType('Version', str)
