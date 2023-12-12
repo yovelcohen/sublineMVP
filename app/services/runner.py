@@ -10,11 +10,11 @@ from xml.etree import ElementTree as ET
 import streamlit as st
 from beanie import PydanticObjectId
 
-from app.common.consts import SrtString, XMLString, JsonStr
-from app.common.models.core import Translation, SRTBlock, TranslationStates
-from app.services.constructor import TranslatorV1, SubtitlesResults, TranslationRevisor
-from app.common.config import settings
-from app.common.db import init_db
+from common.consts import SrtString, XMLString, JsonStr
+from common.models.core import Translation, SRTBlock, TranslationStates
+from services.constructor import TranslatorV1, SubtitlesResults, TranslationRevisor
+from common.config import settings
+from common.db import init_db
 
 
 class BaseHandler:

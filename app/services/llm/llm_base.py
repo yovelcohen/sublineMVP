@@ -9,8 +9,8 @@ import tiktoken
 from httpx import Timeout
 from openai.types.edit import Choice
 
-from app.common.config import settings
-from app.common.context_vars import total_stats
+from common.config import settings
+from common.context_vars import total_stats
 
 encoder = tiktoken.encoding_for_model('gpt-4')
 

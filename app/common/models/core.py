@@ -10,7 +10,7 @@ from pymongo import IndexModel
 
 from srt import make_legal_content
 
-from app.common.models.base import BaseDocument, BaseCreateUpdateDocument
+from common.models.base import BaseDocument, BaseCreateUpdateDocument
 
 SECONDS_IN_HOUR = 3600
 SECONDS_IN_MINUTE = 60

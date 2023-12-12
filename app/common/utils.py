@@ -3,7 +3,7 @@ from typing import cast, Callable
 
 from srt import sort_and_reindex
 
-from app.common.consts import SrtString
+from common.consts import SrtString
 
 _rtl_punctuation_pattern = re.compile(r'([\u0590-\u05FF]+)([,.])')
 

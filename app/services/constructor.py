@@ -1,21 +1,20 @@
 import asyncio
 import logging
 import re
-from typing import cast, Literal, NoReturn, Callable
+from typing import cast, Literal, NoReturn
 from xml.etree import ElementTree as ET  # noqa
 
-from beanie.odm.operators.update.general import Set
 import streamlit as st
 from httpx import AsyncClient
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
 
-from app.common.consts import SrtString, JsonStr, XMLString, LanguageCode
-from app.common.models.core import SRTBlock, Translation, TranslationContent, TranslationStates
-from app.common.utils import rows_to_srt
-from app.common.context_vars import total_stats
-from app.services.llm.translator import translate_via_openai_func
-from app.services.llm.revisor import review_revisions_via_openai
+from common.consts import SrtString, JsonStr, XMLString, LanguageCode
+from common.models.core import SRTBlock, Translation, TranslationContent, TranslationStates
+from common.utils import rows_to_srt
+from common.context_vars import total_stats
+from services.llm.translator import translate_via_openai_func
+from services.llm.revisor import review_revisions_via_openai
 
 logger = logging.getLogger(__name__)
 

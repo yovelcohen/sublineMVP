@@ -6,8 +6,8 @@ from typing import Literal
 import json_repair
 from openai.types.edit import Choice
 
-from app.common.models.core import SRTBlock
-from app.services.llm.llm_base import encoder, TokenCountTooHigh, send_request
+from common.models.core import SRTBlock
+from services.llm.llm_base import encoder, TokenCountTooHigh, send_request
 
 
 def language_rules():

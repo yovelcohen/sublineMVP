@@ -14,12 +14,12 @@ from beanie import PydanticObjectId, Document
 from beanie.exceptions import CollectionWasNotInitialized
 from streamlit.runtime.uploaded_file_manager import UploadedFile
 
-from app.common.models.core import Translation, SRTBlock
-from app.services.runner import run_translation, XMLHandler, SRTHandler
-from app.common.config import settings
-from app.common.db import init_db
-from app.services.constructor import SubtitlesResults
-from app.streamlit_utils import find_relevant_video_files
+from common.models.core import Translation, SRTBlock
+from common.config import settings
+from common.db import init_db
+from services.runner import run_translation, XMLHandler, SRTHandler
+from services.constructor import SubtitlesResults
+from streamlit_utils import find_relevant_video_files
 
 streamlit.logger.get_logger = logging.getLogger
 streamlit.logger.setup_formatter = None

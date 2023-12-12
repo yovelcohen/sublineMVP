@@ -4,10 +4,10 @@ import logging
 
 from pydantic import TypeAdapter
 
-from app.common.config import settings
-from app.common.db import init_db
-from app.common.models.core import SRTBlock, Translation
-from app.services.llm.llm_base import send_request
+from common.config import settings
+from common.db import init_db
+from common.models.core import SRTBlock, Translation
+from services.llm.llm_base import send_request
 
 _SEED = 192
 

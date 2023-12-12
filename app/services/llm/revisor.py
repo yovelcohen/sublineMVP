@@ -5,8 +5,8 @@ from typing import Literal
 
 import json_repair
 
-from app.common.models.core import SRTBlock
-from app.services.llm.llm_base import send_request
+from common.models.core import SRTBlock
+from services.llm.llm_base import send_request
 
 _SEED = 918
 
