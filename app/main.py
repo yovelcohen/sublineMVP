@@ -229,10 +229,11 @@ def subtitle_viewer():
             'Original Language': st.column_config.TextColumn(width='large'),
             'Glix Translation 1': st.column_config.TextColumn(width='large'),
             'V1 Error 1': select_box_col('V1 Error 1'),
-            'V1 Error 2': select_box_col('V2 Error 2'),
+            'V1 Error 2': select_box_col('V1 Error 2'),
+
             'Glix Translation 2': st.column_config.TextColumn(width='large'),
-            'V2 Error 1': select_box_col('V1 Error 1'),
-            'V2 Error 2': select_box_col('V2 Error 1'),
+            'V2 Error 1': select_box_col('V2 Error 1'),
+            'V2 Error 2': select_box_col('V2 Error 2'),
         }
 
         # Find the length of the longest list
