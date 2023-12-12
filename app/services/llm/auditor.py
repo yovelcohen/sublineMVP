@@ -14,31 +14,47 @@ _SEED = 192
 
 def get_messages(target_language: str, rows: list[SRTBlock]):
     rows = json.dumps(
-        {row.content: {"translation_1": row.translations.content, "translation_2": row.translations.revision}
-         for row in rows},
+        {
+            row.index: {'original': row.content, "translation_1": row.translations.content,
+                        "translation_2": row.translations.revision}
+            for row in rows
+        },
         ensure_ascii=False
     )
+    example_input_output_str = json.dumps({
+        "Input": {"1": {"original": "I was going to take it", "translation_1": "אני הייתי הולך לקחת את זה",
+                        "translation_2": "עמדתי ללכת לקחת את זה"},
+                  "2": {"original": "He's a real piece of shit.", "translation_1": "הוא פרצוף אמיתי של חרא.",
+                        "translation_2": "הוא פרטי אמיתי של חרא."},
+                  "3": {"original": "Trust me, Beth, you don't want to know",
+                        "translation_1": "תסתמי, בת, את לא רוצה לדעת",
+                        "translation_2": "תסמוך עלי, בת, את לא רוצה לדעת"},
+                  "4": {"original": "I guess I take back what I said about British cuisine.",
+                        "translation_1": ".אני מניח שאני מתחזק בדבריי על המטבח הבריטי",
+                        "translation_2": "אני מניח שאני מתחזק על מה שאמרתי על המטבח הבריטי."}},
+        "Output": {"1": "הוא חתיכת חרא.", "2": "תסמכי עליי, בת, את לא רוצה לדעת",
+                   "3": "אני מניח שאקח בחזרה את מה שאמרתי על המבטח הבריטי."}
+    }, ensure_ascii=False, indent=4)
+
+    user_msg = f"""Review the following subtitles translation, each key in the JSON is the original English and values are 2 Hebrew translations That You need to Review.
+The object is ordered in terms of subtitles flow. Return a VALID JSON Object of rows you think none of the translations 
+work in the context and offer a revised translation, RETURN ONLY THE ROWS YOU THINK NEED FIXING. 
+Keys of the returned object should be the original English. 
+You will get paid for errors found and extra for errors fixed.
+
+---
+Example Input/Output:
+{example_input_output_str}
+---
+
+Input: {rows}"""
+
     return [
         {'role': 'system',
          'content': f"You are proficient in Translating TV Shows from English To {target_language}. You're Job is to review translations from the User, and highlight any mistakes you find. You will be paid for each mistake you find."},
         {
-            'role': 'user',
-            'content': f"""Review the following subtitles translation, each key in the JSON is the original English and values 
-are 2 Hebrew translations to review by your rules.
-The object is ordered in terms of subtitles flow. Return a VALID JSON Object of rows you think none of the translations 
-work in the context and offer a revised translation, RETURN ONLY THE ROWS YOU THINK NEED FIXING. 
-Keys of the returned object should be the original English. 
-
-You will get paid for errors found and extra for errors fixed.
-
-Example Input/Output:
-Input: {{"I was going to take it": {{ "translation 1": "אני הייתי הולך לקחת את זה", "translation 2": "עמדתי ללכת לקחת את זה" }}, "He's a real piece of shit.": {{ "translation 1": "הוא פרצוף אמיתי של חרא.", "translation 2": "הוא פרטי אמיתי של חרא."}}, "Trust me, Beth, you don't want to know": {{ "translation 1": "תסתמי, בת, את לא רוצה לדעת.", "translation 2": "תסמוך עלי, בת, את לא רוצה לדעת" }}, "I guess I take back what I said
-about British cuisine.": {{ "translation 1": "אני מניח שאני מתחזק בדבריי על המטבח הבריטי.", "translation 2": "אני מניח שאני מתחזק על מה שאמרתי על המטבח הבריטי."}} }}
-Output: {{ "He's a real piece of shit.": "הוא חתיכת חרא.", "Trust me, Beth, you don't want to know": "תסמכי עליי, בת, את לא רוצה לדעת", "I guess I take back what I said
-about British cuisine.": "אני מניח שאקח בחזרה את מה שאמרתי על המבטח הבריטי." }}
-
-Rows: {rows}"""
-        },
+            'role': 'user', 'content': user_msg
+        }
     ]
 
 
@@ -61,7 +77,7 @@ async def main():
 def logging_setup():
     logging.basicConfig(level=logging.DEBUG, format="%(levelname)s %(asctime)s %(name)s:%(message)s", force=True)
     logging.getLogger('httpcore').setLevel(logging.INFO)
-    logging.getLogger('openai').setLevel(logging.INFO)
+    # logging.getLogger('openai').setLevel(logging.INFO)
 
 
 if __name__ == '__main__':

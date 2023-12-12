@@ -6,15 +6,16 @@ from typing import Literal
 import json_repair
 
 from app.common.models.core import SRTBlock
-from services.llm.llm_base import send_request
+from app.services.llm.llm_base import send_request
+
+_SEED = 918
 
 
 def language_rules():
-    return """You are a proficient TV shows English to Hebrew Translator, Make sure you follow the following rules and output a valid JSON, no matter what!
+    return """You are a proficient TV shows English to Hebrew Translator, Your Job is to review and fix the work of your fellow translators. You will be paid handsomely for every corrected/improved translation you provide.
 
-Modern Slang Appropriateness
-
-Rule: Ensure the translation reflects modern Hebrew slang if used in the English source.
+Rules:
+Rule: Ensure the translation reflects modern Hebrew slang and day2day language if used in the English source.
 Example 1: English: "That movie was lit!" | Poor Translation: "הסרט היה מואר" | Improved Translation: "הסרט היה מגניב"
 Example 2: English: "She ghosted him." | Poor Translation: "היא הפכה לרוח" | Improved Translation: "היא נעלמה ממנו"
 Right-to-Left Alignment
@@ -47,14 +48,24 @@ Cultural and Contextual Accuracy
 Rule: Ensure cultural references and idioms are appropriately translated or adapted.
 Example 1: English: "It's raining cats and dogs." | Literal Translation: "זה גשם חתולים וכלבים" | Contextual Translation: "יורד גשם כמו שוטפים"
 Example 2: English: "Break a leg!" | Literal Translation: "שבור רגל!" | Contextual Translation: "בהצלחה!"
+
+Rule: Make sure you follow the following rules and output a valid JSON, no matter what!
 """
 
 
-def get_revisor_messages(*, original_to_translation, target_language):
+def get_revisor_messages(*, rows, target_language):
+    data = {row.index: {'og': row.content, 'translation': row.translations.content} for row in rows}
     messages = [
         {"role": 'system', 'content': language_rules()},
-        {'role': 'user',
-         'content': f'Review the Translation of these subtitles from English to {target_language}, And offer a better more casual translation based on your rules. Return rows by their corresponding original text as valid JSON structure. \nRows:\n {json.dumps(original_to_translation)}'},
+        {
+            'role': 'user',
+            'content': f"""Review the Translation of these subtitles from English to {target_language}, And offer a better translation based on these rules: 
+- More day2day language and casual translation
+- A translation which corrects errors such as gender misuse, time tenses errors, syntax adaptation and so on.. in the original translation. 
+
+Base your answer on your Rules. Return a Valid JSON Structure Where the keys are the original keys from Rows and values are the suggested {target_language} new translation.
+Rows: {json.dumps(data)}"""
+        }
     ]
     return messages
 
@@ -69,18 +80,24 @@ async def make_request(messages, seed, model, max_tokens=None, top_p=None, tempe
 def clean_resp(resp):
     ret = {}
     for k, v in resp.items():
-        if isinstance(v, str):
-            ret[k] = v
-        elif isinstance(v, dict):
-            for key, val in v.items():
-                if 'translation' in key.lower():
-                    ret[k] = val
-                    continue
-        elif isinstance(v, list) and len(v) == 1 and 'Improved Translation' in v[0]:
-            ret[k] = v[0]['Improved Translation']
+
+        if k.isdigit() and isinstance(v, dict):
+            key = [i for i in v.keys() if i.lower().strip() != 'og'][0]
+            ret[k] = v[key]
         else:
             raise ValueError(f"Can't serialize value: {v}")
     return ret
+
+
+def pprint_from_resp(ret, rows):
+    rows = {row.content.replace('\n', ' ').strip(): row for row in rows}
+    for i in ret:
+        if row := rows.get(i[1]['og'].replace('\n', ' ').strip()):
+            if row.translations.content != i[1]['translation']:
+                print(i[1]['og'].replace('\n', ' ').strip())
+                print(row.translations.content)
+                print(i[1]['translation'])
+                print('----')
 
 
 async def review_revisions_via_openai(
@@ -94,15 +111,13 @@ async def review_revisions_via_openai(
     :param rows: list of srt rows to translate
     :param target_language: translation's target language
 
-    :returns a dict from row index to its translation and the last index that was NOT translated,
-             if -1 then all rows were translated.
+    :returns a dict from row original english to its translation.
     """
     t1 = time.time()
     if not rows:
         return {}
-    original_to_translation = {row.content: row.translations.content for row in rows if row.translations is not None}
-    messages = get_revisor_messages(original_to_translation=original_to_translation, target_language=target_language)
-    ret = await make_request(messages=messages, seed=99, model=model, top_p=.15)
+    messages = get_revisor_messages(rows=rows, target_language=target_language)
+    ret = await make_request(messages=messages, seed=_SEED, model=model, temperature=.15)
     ret = clean_resp(ret)
     t2 = time.time()
     logging.info('finished translating revisions via openai, took %s seconds', t2 - t1)

@@ -1,5 +1,5 @@
 import re
-from typing import cast
+from typing import cast, Callable
 
 from srt import sort_and_reindex
 

@@ -7,20 +7,22 @@ from typing import Literal
 import magic
 import srt
 from xml.etree import ElementTree as ET
-
+import streamlit as st
 from beanie import PydanticObjectId
 
 from app.common.consts import SrtString, XMLString, JsonStr
 from app.common.models.core import Translation, SRTBlock, TranslationStates
-from app.services.constructor import SRTTranslator, SubtitlesResults, TranslationRevisor
-from common.config import settings
-from common.db import init_db
+from app.services.constructor import TranslatorV1, SubtitlesResults, TranslationRevisor
+from app.common.config import settings
+from app.common.db import init_db
 
 
 class BaseHandler:
     _results: SubtitlesResults | None = None
 
-    def __init__(self, *, raw_content: str | SrtString | XMLString, translation_obj: Translation):
+    def __init__(self, *, raw_content: str | bytes | SrtString | XMLString, translation_obj: Translation):
+        if isinstance(raw_content, bytes):
+            raw_content = raw_content.decode('utf-8')
         self.raw_content = raw_content
         self.translation_obj = translation_obj
 
@@ -37,14 +39,20 @@ class BaseHandler:
     async def run(self, revise: bool = False, raw_results: bool = False, model: Literal['good', 'best'] = 'good'):
         await self._set_state(state=TranslationStates.IN_PROGRESS)
 
-        translator = SRTTranslator(translation_obj=self.translation_obj, rows=self.to_rows(), model=model)
-        self._results = await translator(num_rows_in_chunk=75)
+        translator = TranslatorV1(translation_obj=self.translation_obj, rows=self.to_rows(), model=model)
+        st.session_state['bar'].progress(15, 'Starting Translation')
+        self._results = await translator(
+            num_rows_in_chunk=75, start_progress_val=30, middle_progress_val=45, end_progress_val=60
+        )
         if revise:
             logging.info("Running Revisor app")
             await self._set_state(state=TranslationStates.IN_REVISION)
             revisor = TranslationRevisor(translation_obj=self._results.translation_obj, rows=self._results.rows,
                                          model=model)
-            self._results = await revisor(num_rows_in_chunk=75)
+            self._results = await revisor(
+                num_rows_in_chunk=35, start_progress_val=65, middle_progress_val=85, end_progress_val=90
+            )
+            st.session_state['bar'].progress(60, 'Finished Translation Revisions')
             logging.info('finished running revisor')
             await self._set_state(state=TranslationStates.DONE)
 
@@ -148,8 +156,8 @@ async def run_translation(
     """
     mime_type = magic.Magic()
     detected_mime_type = mime_type.from_buffer(blob_content)
-
     detected_mime_type = detected_mime_type.lower()
+    st.session_state['bar'].progress(5, 'File Successfully Parsed')
     if 'xml' in detected_mime_type:
         handler = XMLHandler(raw_content=blob_content, translation_obj=task)
     elif 'json' in detected_mime_type:

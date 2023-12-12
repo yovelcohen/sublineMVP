@@ -19,16 +19,10 @@ class BaseDocument(Document):
         alias_generator=document_alias_generator,
     )
 
-    class Settings:
-        is_root = True
-
 
 class BaseCreateUpdateDocument(BaseDocument):
     created_at: datetime = Field(default_factory=datetime.now)
     updated_at: datetime = Field(default_factory=datetime.now)
-
-    class Settings:
-        is_root = True
 
     async def save(self, *args, **kwargs):
         self.updated_at = datetime.now()

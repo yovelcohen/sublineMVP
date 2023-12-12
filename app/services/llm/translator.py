@@ -3,13 +3,19 @@ import logging
 import time
 from typing import Literal
 
+import json_repair
+from openai.types.edit import Choice
+
 from app.common.models.core import SRTBlock
-from services.llm.llm_base import encoder, make_openai_request, TokenCountTooHigh
+from app.services.llm.llm_base import encoder, TokenCountTooHigh, send_request
 
 
 def language_rules():
-    return """You are a proficient TV shows English to Hebrew Translator,Make sure you follow the following rules and output a valid JSON, no matter what! 
+    return """You are a proficient TV shows English to Hebrew Translator,
+Make sure you follow the following the Rules and output a valid JSON, no matter what! 
+You will be paid handsomely for every corrected/improved translation you provide.
 
+Rules:
 - Modern Slang Translation: Translate English slang into appropriate Hebrew slang and day to day language.
 Example 1: "Chill out" → Hebrew equivalent of "Relax" or "Take it easy."
 Example 2: "Ghosting" → Hebrew slang for ignoring or avoiding someone.
@@ -65,6 +71,92 @@ def get_openai_messages(*, target_language, rows):
          'content': f'Translate the each row of this subtitles to {target_language}, And return the translated rows by their corresponding index as valid JSON structure. \nRows:\n {json.dumps({row.index: row.content for row in rows})}'},
     ]
     return messages
+
+
+def validate_and_parse_answer(answer: Choice, preferred_suffix='}'):
+    """
+    validate the answer from openai and return the parsed answer
+    """
+    json_str = answer.message.content.strip()
+    pop_last = False
+    try:
+        fixed_json = json_repair.loads(json_str)
+    except ValueError as e:
+        try:
+            json_str = json_str.rsplit(',', 1)[0] + preferred_suffix
+            json_str = json_repair.loads(json_str)
+        except ValueError:
+            pass
+        if isinstance(json_str, dict):
+            fixed_json = json_str
+        else:
+            pop_last = True
+            if not json_str.endswith(preferred_suffix):
+                last_char = json_str[-1]
+                if last_char.isalnum():
+                    json_str += '"}'
+                elif last_char == ',':
+                    json_str = json_str[:-1] + preferred_suffix
+                elif json_str.endswith('"'):
+                    json_str += preferred_suffix
+                else:
+                    raise e
+                try:
+                    fixed_json = json_repair.loads(json_str)
+                except ValueError as e:
+                    logging.exception('failed to parse answer from openai, fixed to_json manually')
+                    raise e
+            else:
+                raise e
+    except Exception as e:
+        raise e
+
+    if isinstance(fixed_json, (list, set, tuple)):
+        return fixed_json, -1
+
+    data = fixed_json['translation'] if 'translation' in fixed_json else fixed_json
+    data = {str(k): v for k, v in data.items() if k.isdigit()}
+    last_index = -1
+    if len(data) > 2 and pop_last:
+        # we don't trust the fixer or openai, so we remove the last index,
+        # which is usually a shitty translation anyway.
+        key, val = data.popitem()
+        last_index = key
+    try:
+        last_index = int(last_index)
+    except:
+        raise ValueError(f'last index is not an integer, last index is {last_index}')
+    return data, last_index
+
+
+async def make_openai_request(
+        messages: list[dict[str, str]],
+        seed: int = 99,
+        model: str = 'best',
+        temperature: float | None = .1,
+        top_p: float | None = None,
+        max_tokens: int | None = None,
+        num_options: int | None = None,
+        preferred_suffix='}',
+):
+    """
+    :param messages: list of openai message dicts
+    :param seed: constant to use on the model, improves consistency
+    :param model: 3.5 or 4
+    :param temperature: model temp
+    :param top_p: model top_p sampling, usually used when tempature isn't
+    :param max_tokens: max response tokens
+    :param num_options: number of answers to generate, None == 1
+    :param preferred_suffix: preferred_suffix of the expected JSON structure output, used to fix broken json responses.
+
+    :returns A dict, where keys are versions, the values are tuples of dict[row_index, translation]
+             and the last valid row index that was loaded from the JSON.
+    """
+    choices = await send_request(messages=messages, seed=seed, model=model, temperature=temperature, top_p=top_p,
+                                 num_options=num_options, max_tokens=max_tokens)
+    choice = choices[0]
+    answer, last_idx = validate_and_parse_answer(answer=choice, preferred_suffix=preferred_suffix)
+    return answer, last_idx
 
 
 async def translate_via_openai_func(

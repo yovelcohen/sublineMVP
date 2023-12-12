@@ -1,16 +1,32 @@
 import asyncio
 import logging
-from typing import cast, Literal, NoReturn
+import re
+from typing import cast, Literal, NoReturn, Callable
 from xml.etree import ElementTree as ET  # noqa
 
 from beanie.odm.operators.update.general import Set
+import streamlit as st
+from httpx import AsyncClient
+from sklearn.feature_extraction.text import TfidfVectorizer
+from sklearn.metrics.pairwise import cosine_similarity
 
 from app.common.consts import SrtString, JsonStr, XMLString, LanguageCode
 from app.common.models.core import SRTBlock, Translation, TranslationContent, TranslationStates
 from app.common.utils import rows_to_srt
 from app.common.context_vars import total_stats
-from app.services.llm.translator import translate_via_openai_func, TokenCountTooHigh, encoder
-from services.llm.revisor import review_revisions_via_openai
+from app.services.llm.translator import translate_via_openai_func
+from app.services.llm.revisor import review_revisions_via_openai
+
+logger = logging.getLogger(__name__)
+
+
+async def LLM_sentence_matcher(source_sentence: str, candidates: list[str]):
+    API_URL = "https://api-inference.huggingface.co/models/sentence-transformers/all-mpnet-base-v2"
+    headers = {"Authorization": "Bearer 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"}
+    payload = {"inputs": {"source_sentence": source_sentence, "sentences": candidates}}
+    async with AsyncClient(headers=headers) as client:
+        response = await client.post(API_URL, headers=headers, json=payload)
+    return response.json()
 
 
 def pct(a, b):
@@ -65,17 +81,30 @@ class SubtitlesResults:
     def to_webvtt(self):
         raise NotImplementedError
 
-    def rows_missing_translations(self, is_revision=False):
-        if is_revision:
-            return [row for row in self.rows if row.translations and row.translations.revision is None]
-        return [row for row in self.rows if row.translations is None]
+    @classmethod
+    def _conditional_iter_rows(cls, rows, is_revision, negate=False):
+        for row in rows:
+            translated = row.is_translated(is_revision=is_revision)
+            if negate:
+                if not translated:
+                    yield row
+            else:
+                if translated:
+                    yield row
+
+    @classmethod
+    def rows_missing_translations(cls, rows, is_revision=False):
+        return cls._conditional_iter_rows(rows=rows, is_revision=is_revision, negate=True)
+
+    @classmethod
+    def rows_with_translations(cls, rows, is_revision=False):
+        return cls._conditional_iter_rows(rows=rows, is_revision=is_revision, negate=False)
 
 
-# TODO: Adjust to accept multi options from openai for each chunk.
-class SRTTranslator:
-    JSON_PARSING_ERROR = 'jp'
-    TOKEN_LIMIT_ERROR = 'tl'
+add_space = lambda s: re.sub(r'(?<!^)(?=[A-Z])', ' ', s)
 
+
+class BaseLLMTranslator:
     __slots__ = (
         'rows', 'make_function_translation', 'failed_rows', 'sema', 'model', 'translation_obj', 'is_revision'
     )
@@ -101,22 +130,62 @@ class SRTTranslator:
     def name(self):
         return self.translation_obj.project_id
 
+    @classmethod
+    def class_name(cls):
+        return add_space(cls.__qualname__)
+
     @property
     def target_language(self) -> LanguageCode:
         return cast(LanguageCode, self.translation_obj.target_language)
 
-    async def __call__(self, *, num_rows_in_chunk: int = 500) -> SubtitlesResults:
-        return await self._translate(num_rows_in_chunk=num_rows_in_chunk)
+    async def __call__(
+            self, *,
+            num_rows_in_chunk: int = 500,
+            start_progress_val: int = 30,
+            middle_progress_val: int = 45,
+            end_progress_val: int = 60
+    ) -> SubtitlesResults:
+        return await self._translate(
+            num_rows_in_chunk=num_rows_in_chunk,
+            start_progress_val=start_progress_val,
+            middle_progress_val=middle_progress_val,
+            end_progress_val=end_progress_val
+        )
 
-    async def _translate(self, *, num_rows_in_chunk: int = 500) -> SubtitlesResults:
+    async def _translate(self, *, num_rows_in_chunk: int = 75, **kwargs):
+        raise NotImplementedError
+
+
+class TranslatorV1(BaseLLMTranslator):
+
+    async def _translate(
+            self, *,
+            num_rows_in_chunk: int = 500,
+            start_progress_val: int = 30,
+            middle_progress_val: int = 45,
+            end_progress_val: int = 60
+    ) -> SubtitlesResults:
+        """
+        Class entry point, runs the translation process
+        """
+        cls_name = self.class_name()
+        st.session_state['currentVal'] = start_progress_val
+        st.session_state['bar'].progress(start_progress_val, f'Running {cls_name} Translation')
         await self._run_and_update(num_rows_in_chunk=num_rows_in_chunk, rows=self.rows)
         logging.debug('finished translating main chunks, handling failed rows')
 
-        await self._handle_failed_rows(original_num_rows_in_chunk=num_rows_in_chunk)
+        st.session_state['bar'].progress(middle_progress_val, f'Finished generating {cls_name} Translation')
 
         results = SubtitlesResults(translation_obj=self.translation_obj)
-
+        num_errors = len(tuple(results.rows_missing_translations(rows=self.rows, is_revision=self.is_revision)))
+        st.session_state['bar'].progress(middle_progress_val,
+                                         f'Handling {cls_name} Translation {num_errors} Errors')
+        st.session_state['currentVal'] = middle_progress_val
         await self._translate_missing(translation_holder=results, num_rows_in_chunk=num_rows_in_chunk)
+        st.session_state['bar'].progress(end_progress_val,
+                                         f'Finished Fixing {cls_name} Translations {num_errors} Errors')
+        st.session_state['currentVal'] = end_progress_val
+
         results.translation_obj.tokens_cost = total_stats.get()
         results.translation_obj.state = TranslationStates.DONE
         await results.translation_obj.save()
@@ -128,13 +197,16 @@ class SRTTranslator:
         """
         for row in rows:
             if translation := results.get(str(row.index), None):
+                if isinstance(translation, dict):
+                    translation = {k.lower(): v for k, v in translation.items()}
+                    translation = translation['hebrew']
                 row.translations = TranslationContent(content=translation)
 
     async def _update_translations(self, translations: dict, chunk: list[SRTBlock]) -> NoReturn:
         self._add_translation_to_rows(rows=chunk, results=translations)
-        self.translation_obj.subtitles.extend(chunk)
-        subtitles = sorted(self.translation_obj.subtitles, key=lambda row: int(row.index))
-        self.translation_obj = await self.translation_obj.update(Set({Translation.subtitles: subtitles}))
+        subtitles = self.translation_obj.subtitles.copy() | set(chunk)
+        subtitles = set(sorted(list(subtitles), key=lambda row: int(row.index)))
+        self.translation_obj = await self.translation_obj.set({Translation.subtitles: subtitles})  # noqa
 
     async def _run_translation_hook(self, chunk):
         """
@@ -143,18 +215,20 @@ class SRTTranslator:
         return await translate_via_openai_func(rows=chunk, target_language=self.target_language, model=self.model)
 
     async def _run_one_chunk(self, *, chunk: list[SRTBlock], chunk_id: int = None) -> NoReturn:
-        self_name = self.__class__.name
+        self_name = self.class_name()
         async with self.sema:
             try:
                 logging.debug(f'{self_name}: starting to translate chunk number {chunk_id} via openai')
                 answer = await self._run_translation_hook(chunk=chunk)
                 await self._update_translations(translations=answer, chunk=chunk)
-                progress = pct(len(self.translation_obj.subtitles), len(self.rows))
-                logging.debug(f'{self_name}: Completed Rows: {progress}%')
-
-            except TokenCountTooHigh:
-                logging.exception('%cls: failed to translate chunk %s because chunk was too big.', self_name, chunk_id)
-                self.failed_rows[self.TOKEN_LIMIT_ERROR][1].extend(chunk)
+                progress = pct(
+                    len(list(SubtitlesResults.rows_with_translations(rows=chunk, is_revision=self.is_revision))),
+                    len(self.rows)
+                )
+                msg = f'{self_name}: Completed Rows: {progress}%'
+                logging.debug(f'Finished chunk number {chunk_id} via openai')
+                logging.debug(msg)
+                st.session_state['bar'].progress(st.session_state['currentVal'], msg)
 
             except Exception as e:
                 raise e
@@ -169,42 +243,42 @@ class SRTTranslator:
         tasks = [self._run_one_chunk(chunk=chunk, chunk_id=i) for i, chunk in enumerate(text_chunks, start=1)]
         await asyncio.gather(*tasks)
 
-    async def _handle_failed_rows(self, *, original_num_rows_in_chunk: int = 500):
-        if token_limit_errors := self.failed_rows.get(self.TOKEN_LIMIT_ERROR, False):
-            num_rows_in_chunk = original_num_rows_in_chunk // 2
-            logging.info('divided %s rows into %s chunks because of token limit reached',
-                         len(token_limit_errors), int(len(token_limit_errors) // num_rows_in_chunk))
-            await self._run_and_update(
-                num_rows_in_chunk=num_rows_in_chunk,
-                rows=token_limit_errors
-            )
-
-        if parsing_errors := self.failed_rows.get(self.JSON_PARSING_ERROR, False):
-            await self._run_and_update(
-                num_rows_in_chunk=original_num_rows_in_chunk,
-                rows=parsing_errors
-            )
-
     async def _translate_missing(
             self, *,
             translation_holder: SubtitlesResults,
-            num_rows_in_chunk: int
+            num_rows_in_chunk: int,
+            recursion_count=0
     ):
         """
-        get the missing translations_result
+        fill the missing translations result recursively
         """
-        missing = translation_holder.rows_missing_translations(is_revision=self.is_revision)
+        missing = list(
+            translation_holder.rows_missing_translations(is_revision=self.is_revision, rows=translation_holder.rows)
+        )
         if len(missing) == 0:
             return
+
+        recursion_count += 1
         logging.debug(
-            f'found %s missing translations result on LLM: {self.__class__.name}, translating them now', len(missing)
+            f'found %s missing translations result on LLM: {self.__class__.__qualname__}, translating them now',
+            len(missing)
         )
+        if recursion_count > 3:
+            if not self.is_revision:
+                # TODO: Handle this case, But for now, allow second translation to be missing,
+                #       The Issue stems from the Revisor Prompt and model output format.
+                logging.warning('failed to translate missing rows, recursion count exceeded')
+                st.warning('failed to translate missing rows, recursion exceeded, stopping')
+                raise RuntimeError('failed to translate missing rows, recursion exceeded')
+            return
+
         await self._run_and_update(
             rows=missing,
             num_rows_in_chunk=num_rows_in_chunk
         )
 
-        return await self._translate_missing(translation_holder=translation_holder, num_rows_in_chunk=num_rows_in_chunk)
+        return await self._translate_missing(translation_holder=translation_holder, num_rows_in_chunk=num_rows_in_chunk,
+                                             recursion_count=recursion_count)
 
     def _divide_rows(self, *, rows: list[SRTBlock], num_rows_in_chunk: int) -> list[list[SRTBlock]]:
         return [rows[i:i + num_rows_in_chunk] for i in range(0, len(rows), num_rows_in_chunk)]
@@ -223,20 +297,73 @@ class SRTTranslator:
         return ['\n'.join(sublist) for sublist in sublists]
 
 
-class TranslationRevisor(SRTTranslator):
+vectorizer = TfidfVectorizer()
 
-    def __init__(self, *,
-                 translation_obj: Translation,
-                 rows: list[SRTBlock] = None,
-                 model: Literal['best', 'good'] = 'best'
-                 ):
+
+def find_most_similar_sentence(source_sentence, sentences_list):
+    try:
+        combined_sentences = [source_sentence] + sentences_list
+        tfidf_matrix = vectorizer.fit_transform(combined_sentences)
+        similarities = cosine_similarity(tfidf_matrix[0:1], tfidf_matrix[1:])
+        most_similar_index = similarities[0].argmax()
+        most_similar_sentence = sentences_list[most_similar_index]
+        similarity_score = similarities[0][most_similar_index]
+        return most_similar_sentence, similarity_score
+    except ValueError as e:
+        raise e
+
+
+class TranslationRevisor(TranslatorV1):
+
+    def __init__(
+            self, *,
+            translation_obj: Translation,
+            rows: list[SRTBlock] = None,
+            model: Literal['best', 'good'] = 'best'
+    ):
         super().__init__(translation_obj=translation_obj, rows=rows, model=model, is_revision=True)
 
     async def _run_translation_hook(self, chunk):
         return await review_revisions_via_openai(rows=chunk, target_language=self.target_language, model=self.model)
 
     def _add_translation_to_rows(self, *, rows: list[SRTBlock], results: dict[str, str]):
-        results = {k.strip(): v for k, v in results.items()}
+        """
+        attaches translation to each indexed row
+        """
         for row in rows:
-            if translation := results.get(row.content.strip(), None):
-                row.translations.revision = translation
+            if translation := results.get(str(row.index), None):
+                if row.translations is not None:
+                    row.translations.revision = translation
+                else:
+                    row.translations = TranslationContent(content=translation)
+                    logger.debug('Row didnt have V1 translation, assigning revision as V1',
+                                 extra={'row_index': row.index, 'row_content': row.content,
+                                        'revision_translation': translation})
+
+    # def _add_translation_to_rows(self, *, rows: list[SRTBlock], results: dict[str, str]):
+    #     results = {k: v for k, v in results.items()}
+    #     rows_copy = rows.copy()
+    #     for row in rows:
+    #         if translation := results.pop(str(row.index), None):
+    #             row.translations.revision = translation
+    #         else:
+    #             rows_copy.remove(row)
+    #
+    #     if len(results) > 0:
+    #         unmatched = []
+    #         rows_contents = {row.content: row for row in rows_copy}
+    #         for source_sentence, translation in results.items():
+    #             if not rows_contents:
+    #                 break
+    #             most_similar_sentence, similarity_score = find_most_similar_sentence(
+    #                 source_sentence, list(rows_contents.keys())
+    #             )
+    #             if similarity_score > 0.8:
+    #                 row = rows_contents.pop(most_similar_sentence)
+    #                 row.translations.revision = translation
+    #             else:
+    #                 # TODO: Maybe Discard the translation?
+    #                 info = {'source_sentence': source_sentence, 'most_similar_sentence': most_similar_sentence,
+    #                         'similarity_score': similarity_score}
+    #                 logger.debug("Unmatched sentences", extra=info)
+    #                 unmatched.append(info)

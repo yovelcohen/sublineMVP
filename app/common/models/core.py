@@ -185,6 +185,11 @@ class SRTBlock(Subtitle):
     def __hash__(self):
         return hash(str(self.index) + str(self.content))
 
+    def is_translated(self, is_revision: bool = False):
+        if not is_revision:
+            return self.translations is not None and self.translations.content
+        return self.translations is not None and self.translations.revision
+
     @model_validator(mode='before')
     @classmethod
     def validate_fields(cls, data: dict):
@@ -198,7 +203,7 @@ class SRTBlock(Subtitle):
         return SRTRowDict(index=self.index, speaker=self.speaker, start=timedelta_to_srt_timestamp(self.start),
                           end=timedelta_to_srt_timestamp(self.end), text=self.content, translations=self.translations)
 
-    def to_srt(self, strict=True, eol="\n", target_language=None, revision: bool = False):
+    def to_srt(self, *, strict=True, eol="\n", target_language=None, revision: bool = False):
         r"""
         Convert the current :py:class:`Subtitle` to an SRT block.
 
@@ -254,14 +259,13 @@ class TranslationStates(str, Enum):
 class Translation(BaseCreateUpdateDocument):
     project_id: PydanticObjectId
     target_language: str
-    subtitles: list[SRTBlock]  # map from index to SRTBlock
+    subtitles: set[SRTBlock]  # map from index to SRTBlock
     state: TranslationStates = TranslationStates.PENDING
     tokens_cost: dict = Field(default_factory=dict)
 
     class Settings:
-        indexes = [
-            "orderSubtitles", [("subtitles.index", pymongo.ASCENDING)]
-        ]
+        indexes = ["orderSubtitles", [("subtitles.index", pymongo.ASCENDING)]]
+        is_root = True
 
     def __repr__(self):
         return f'Translation for project {self.project_id} to {self.target_language}. \n State: {self.state.value}, Num Rows: {len(self.subtitles)}'
@@ -274,12 +278,13 @@ class Translation(BaseCreateUpdateDocument):
         return project.blob_path + f'{self.target_language}.{file_mime}'
 
     async def get_subtitles(self, offset, limit) -> list[SRTBlock]:
-        pipeline = [
-            {'$match': {'task_id': self.task_id}},
-            {'$unwind': '$subtitles'},
-            {'$sort': {'subtitles.index': 1}},
-            {'$group': {'_id': '$_id', 'subtitles': {'$push': '$subtitles'}}},
-            {'$project': {'subtitlesChunk': {'$slice': ['$subtitles', offset, limit]}}}
-        ]
-        ret = await self.aggregate(pipeline).to_list()
-        return [SRTBlock(**di['v']) for di in ret[0]['subtitlesChunk']]
+        raise NotImplementedError
+        # pipeline = [
+        #     {'$match': {'task_id': self.task_id}},
+        #     {'$unwind': '$subtitles'},
+        #     {'$sort': {'subtitles.index': 1}},
+        #     {'$group': {'_id': '$_id', 'subtitles': {'$push': '$subtitles'}}},
+        #     {'$project': {'subtitlesChunk': {'$slice': ['$subtitles', offset, limit]}}}
+        # ]
+        # ret = await self.aggregate(pipeline).to_list()
+        # return [SRTBlock(**di['v']) for di in ret[0]['subtitlesChunk']]

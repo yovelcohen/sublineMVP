@@ -1,6 +1,8 @@
 import asyncio
 import datetime
+import io
 import time
+import zipfile
 
 import pandas as pd
 import streamlit as st
@@ -16,6 +18,8 @@ from app.common.models.core import Translation, SRTBlock
 from app.services.runner import run_translation, XMLHandler, SRTHandler
 from app.common.config import settings
 from app.common.db import init_db
+from app.services.constructor import SubtitlesResults
+from app.streamlit_utils import find_relevant_video_files
 
 streamlit.logger.get_logger = logging.getLogger
 streamlit.logger.setup_formatter = None
@@ -61,7 +65,9 @@ async def translate(_name, file: str, _target_language, _model):
     task = Translation(target_language=_target_language, source_language='English', subtitles=[],
                        project_id=PydanticObjectId())
     await task.save()
-    ret = await run_translation(task=task, model=_model, revision=True, blob_content=file, raw_results=False)
+    ret: SubtitlesResults = await run_translation(
+        task=task, model=_model, revision=True, blob_content=file, raw_results=True
+    )
     st.session_state['name'] = ret
     t2 = time.time()
     logger.debug('finished translation, took %s seconds', t2 - t1)
@@ -70,6 +76,19 @@ async def translate(_name, file: str, _target_language, _model):
 
 def clean():
     del st.session_state['name']
+
+
+def download_button(srt_string1, srt_string2):
+    zip_buffer = io.BytesIO()
+    with zipfile.ZipFile(zip_buffer, 'a', zipfile.ZIP_DEFLATED, False) as zip_file:
+        with io.BytesIO(srt_string1.encode('utf-8')) as srt1_buffer:
+            zip_file.writestr('subtitlesV1.srt', srt1_buffer.getvalue())
+
+        with io.BytesIO(srt_string2.encode('utf-8')) as srt2_buffer:
+            zip_file.writestr('subtitlesV2.srt', srt2_buffer.getvalue())
+
+    zip_buffer.seek(0)
+    st.download_button(label='Download Zip', data=zip_buffer, file_name='subtitles.zip', mime='application/zip')
 
 
 def translate_form():
@@ -98,10 +117,11 @@ def translate_form():
                 )
 
         if st.session_state.get('name', False):
-            results = st.session_state['name']
-            mime = uploaded_file.name.rsplit('.')[-1]
-            st.download_button('Download Translation', data=results, file_name=f'{name}_{target_language}.{mime}',
-                               type='primary', on_click=clean)
+            results: SubtitlesResults = st.session_state['name']
+            download_button(
+                results.to_srt(revision=False, target_language=target_language),
+                results.to_srt(revision=True, target_language=target_language)
+            )
 
 
 def format_time(_time: datetime.timedelta):
@@ -157,6 +177,9 @@ def subtitle_viewer():
 
     with st.form("file_upload"):
         name: str = st.text_input(label='Movie Or Series Name, i.e; FriendsS05E12')
+        fname = lambda path: f'{path.parent.name}/{path.name}'
+        paths = {fname(path): str(path) for path in find_relevant_video_files()}
+        video_path = st.selectbox(label='Video Local URL', options=list(paths.keys()))
         original_content: UploadedFile = st.file_uploader(
             "Upload Original Source Language Subtitle File",
             type=["srt", "xml", 'nfs'],
@@ -182,33 +205,55 @@ def subtitle_viewer():
                 'Glix Translation 2': parse_file(third_revision)
             }
             st.session_state['subtitles'] = subtitles
-            # st.session_state['videoPath'] = video
 
     if 'subtitles' in st.session_state and st.session_state['subtitles']:
+        with st.echo():
+            st.video(
+                data=paths[video_path],
+                subtitles={'EN': original_content,
+                           'Hebrew V1': given_translation,
+                           'Hebrew V2': third_revision}
+            )
+
+        st.divider()
+        st.divider()
+
+        labels = ['Gender Mistake', 'Time Tenses', 'Names', 'Slang',
+                  'Name "as is"', 'not fit in context', 'Plain Wrong Translation']
         subtitles = st.session_state['subtitles']
+        select_box_col = lambda label: st.column_config.SelectboxColumn(
+            width='medium', label=label, required=False, options=labels
+        )
+        select_cols = ['V1 Error 1', 'V1 Error 2', 'V2 Error 1', 'V2 Error 2']
         config = {
             'Original Language': st.column_config.TextColumn(width='large'),
             'Glix Translation 1': st.column_config.TextColumn(width='large'),
+            'V1 Error 1': select_box_col('V1 Error 1'),
+            'V1 Error 2': select_box_col('V2 Error 2'),
             'Glix Translation 2': st.column_config.TextColumn(width='large'),
-            'Error 1': st.column_config.SelectboxColumn(
-                width='medium', label='Text Error 1', required=False,
-                options=['Gender Mistake', 'Time Tenses', 'Names', 'Slang',
-                         'Name "as is"', 'not fit in context', 'Plain Wrong Translation']),
-            'Error 2': st.column_config.SelectboxColumn(
-                width='medium', label='Text Error 2', required=False,
-                options=['Gender Mistake', 'Time Tenses', 'Names', 'Slang',
-                         'Name "as is"', 'not fit in context', 'Plain Wrong Translation'])
+            'V2 Error 1': select_box_col('V1 Error 1'),
+            'V2 Error 2': select_box_col('V2 Error 1'),
         }
+
+        # Find the length of the longest list
+        max_length = max(len(lst) for lst in subtitles.values())
+        # Pad shorter lists with None
+        for key in subtitles:
+            subtitles[key] += [None] * (max_length - len(subtitles[key]))
+
         df = pd.DataFrame(subtitles)
-        df['Error 1'] = pd.Series(['None'] * len(df), index=df.index)
-        df['Error 2'] = pd.Series(['None'] * len(df), index=df.index)
+        for col in select_cols:
+            df[col] = pd.Series([None] * len(df), index=df.index)
+
         edited_df = st.data_editor(df, key='df', column_config=config, use_container_width=True)
+
         if st.button('Submit'):
-            edited_df['Error 1'] = edited_df['Error 1'].apply(lambda x: None if x == 'None' else x)
-            edited_df['Error 2'] = edited_df['Error 2'].apply(lambda x: None if x == 'None' else x)
-            marked_rows = edited_df[(edited_df['Error 1']).notna() | (edited_df['Error 2'].notna())].to_dict(
-                orient='records'
-            )
+            marked_rows = []
+            for row in edited_df.to_dict(orient='records'):
+                for col in select_cols:
+                    if row[col] not in ('None', None):
+                        marked_rows.append(row)
+                        break
 
             feedback_obj = asyncio.run(save_to_db(marked_rows, edited_df, name=name))
             st.write('Successfully Saved Results to DB!')
@@ -220,6 +265,5 @@ def subtitle_viewer():
 
 
 page_names_to_funcs = {"Translate": translate_form, "Subtitle Viewer": subtitle_viewer}
-
-demo_name = st.sidebar.selectbox("Choose app", page_names_to_funcs.keys())
-page_names_to_funcs[demo_name]()
+app_name = st.sidebar.selectbox("Choose app", page_names_to_funcs.keys())
+page_names_to_funcs[app_name]()
