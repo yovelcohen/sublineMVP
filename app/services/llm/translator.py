@@ -7,7 +7,9 @@ import json_repair
 from openai.types.edit import Choice
 
 from common.models.core import SRTBlock
-from services.llm.llm_base import encoder, TokenCountTooHigh, send_request
+from services.llm.llm_base import send_request
+
+_SEED = 99
 
 
 def language_rules():
@@ -179,12 +181,7 @@ async def translate_via_openai_func(
     if not rows:
         return {}
     messages = get_openai_messages(rows=rows, target_language=target_language)
-    data_token_cost = len(encoder.encode(json.dumps(messages)))
-    max_completion_tokens = 16000 - (data_token_cost + tokens_safety_buffer)
-    if max_completion_tokens < data_token_cost:
-        raise TokenCountTooHigh(f'openai token limit is 16k, and the data token cost is {data_token_cost}, '
-                                f'please reduce the number of rows')
-    answer, last_idx = await make_openai_request(messages=messages, seed=99, model=model, temperature=.1)
+    answer, last_idx = await make_openai_request(messages=messages, seed=_SEED, model=model, temperature=.1)
     t2 = time.time()
     logging.info('finished translating via openai, took %s seconds', t2 - t1)
     return answer
