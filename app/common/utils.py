@@ -57,10 +57,7 @@ def rows_to_srt(
               :py:class:`Subtitle` represented as an SRT block
     """
     subtitles = sort_and_reindex(subtitles=rows, start_index=start_index, in_place=True) if reindex else rows
-    ret = "".join(
-        subtitle.to_srt(strict=strict, eol=eol, target_language=target_language, revision=user_revision)
-        for subtitle in subtitles
-    )
+    ret = "".join(subtitle.to_srt(strict=strict, eol=eol, revision=user_revision) for subtitle in subtitles)
     if target_language in ('Hebrew', 'heb', 'he'):
         ret = _correct_punctuation_alignment(ret)
     return cast(SrtString, ret)

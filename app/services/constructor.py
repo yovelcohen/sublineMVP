@@ -178,15 +178,12 @@ class TranslatorV1(BaseLLMTranslator):
         logging.debug('finished translating main chunks, handling failed rows')
 
         st.session_state['bar'].progress(middle_progress_val, f'Finished generating {cls_name} Translation')
+        st.session_state['currentVal'] = middle_progress_val
 
         results = SubtitlesResults(translation_obj=self.translation_obj)
         num_errors = len(tuple(results.rows_missing_translations(rows=self.rows, is_revision=self.is_revision)))
-        st.session_state['bar'].progress(middle_progress_val,
-                                         f'Handling {cls_name} Translation {num_errors} Errors')
-        st.session_state['currentVal'] = middle_progress_val
         await self._translate_missing(translation_holder=results, num_rows_in_chunk=num_rows_in_chunk)
-        st.session_state['bar'].progress(end_progress_val,
-                                         f'Finished Fixing {cls_name} Translations {num_errors} Errors')
+        st.session_state['bar'].progress(end_progress_val, f'Finished {cls_name} Translations')
         st.session_state['currentVal'] = end_progress_val
 
         results.translation_obj.tokens_cost = total_stats.get()
@@ -228,10 +225,9 @@ class TranslatorV1(BaseLLMTranslator):
                     len(list(SubtitlesResults.rows_with_translations(rows=chunk, is_revision=self.is_revision))),
                     len(self.rows)
                 )
-                msg = f'{self_name}: Completed Rows: {progress}%'
                 logging.debug(f'Finished chunk number {chunk_id} via openai')
-                logging.debug(msg)
-                st.session_state['bar'].progress(st.session_state['currentVal'], msg)
+                logging.debug(f'{self_name}: Completed Rows: {progress}%')
+                st.session_state['bar'].progress(st.session_state['currentVal'], 'Translating...')
 
             except Exception as e:
                 raise e
