@@ -14,6 +14,7 @@ from beanie import PydanticObjectId, Document
 from beanie.exceptions import CollectionWasNotInitialized
 from streamlit.runtime.uploaded_file_manager import UploadedFile
 
+from common.consts import SrtString
 from common.models.core import Translation, SRTBlock
 from common.config import settings
 from common.db import init_db
@@ -78,7 +79,7 @@ def clean():
     del st.session_state['name']
 
 
-def download_button(srt_string1, srt_string2):
+def download_button(name: str, srt_string1: SrtString, srt_string2: SrtString):
     zip_buffer = io.BytesIO()
     with zipfile.ZipFile(zip_buffer, 'a', zipfile.ZIP_DEFLATED, False) as zip_file:
         with io.BytesIO(srt_string1.encode('utf-8')) as srt1_buffer:
@@ -88,7 +89,8 @@ def download_button(srt_string1, srt_string2):
             zip_file.writestr('subtitlesV2.srt', srt2_buffer.getvalue())
 
     zip_buffer.seek(0)
-    st.download_button(label='Download Zip', data=zip_buffer, file_name='subtitles.zip', mime='application/zip')
+    name = name.replace(' ', '_').strip()
+    st.download_button(label='Download Zip', data=zip_buffer, file_name=f'{name}_subtitles.zip', mime='application/zip')
 
 
 def translate_form():
@@ -119,8 +121,9 @@ def translate_form():
         if st.session_state.get('name', False):
             results: SubtitlesResults = st.session_state['name']
             download_button(
-                results.to_srt(revision=False, target_language=target_language),
-                results.to_srt(revision=True, target_language=target_language)
+                name=name,
+                srt_string1=results.to_srt(revision=False, target_language=target_language),
+                srt_string2=results.to_srt(revision=True, target_language=target_language)
             )
 
 
