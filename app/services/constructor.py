@@ -1,6 +1,7 @@
 import asyncio
 import logging
 import re
+from collections import defaultdict
 from typing import cast, Literal, NoReturn
 from xml.etree import ElementTree as ET  # noqa
 
@@ -313,6 +314,7 @@ def find_most_similar_sentence(source_sentence, sentences_list):
 
 
 class TranslationRevisor(TranslatorV1):
+    __slots__ = TranslatorV1.__slots__ + ('unmatched',)
 
     def __init__(
             self, *,
@@ -321,6 +323,7 @@ class TranslationRevisor(TranslatorV1):
             model: Literal['best', 'good'] = 'best'
     ):
         super().__init__(translation_obj=translation_obj, rows=rows, model=model, is_revision=True)
+        self.unmatched = defaultdict(list)
 
     async def _run_translation_hook(self, chunk):
         return await review_revisions_via_openai(rows=chunk, target_language=self.target_language, model=self.model)
@@ -335,9 +338,13 @@ class TranslationRevisor(TranslatorV1):
                     row.translations.revision = translation
                 else:
                     row.translations = TranslationContent(content=translation)
+                    info = {'row_index': row.index, 'row_content': row.content,
+                            'revision_translation': translation}
                     logger.debug('Row didnt have V1 translation, assigning revision as V1',
-                                 extra={'row_index': row.index, 'row_content': row.content,
-                                        'revision_translation': translation})
+                                 extra=info)
+                    self.unmatched['Row didnt have V1 translation, assigning revision as V1'].append(info)
+            else:
+                self.unmatched['Translation Not Found'].append({'row_index': row.index, 'row_content': row.content})
 
     # def _add_translation_to_rows(self, *, rows: list[SRTBlock], results: dict[str, str]):
     #     results = {k: v for k, v in results.items()}
