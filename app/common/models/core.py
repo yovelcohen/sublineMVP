@@ -155,11 +155,19 @@ class Subtitle(BaseModel):
 class TranslationContent(BaseModel):
     content: str
     revision: str | None = None
+    selected: str | None = None
 
-    def get(self, revision: bool = False):
-        if revision:
-            return self.revision or self.content
-        return self.content
+    def get_selected(self, revision_fallback: bool = False):
+        if self.selected == '1':
+            return self.content
+        elif self.selected == '2':
+            return self.revision
+        else:
+            if self.selected is not None:
+                return self.selected
+            elif self.selected is None and revision_fallback and self.revision is not None:
+                return self.revision
+            return self.content
 
 
 class SRTRowDict(TypedDict):
@@ -203,7 +211,7 @@ class SRTBlock(Subtitle):
         return SRTRowDict(index=self.index, speaker=self.speaker, start=timedelta_to_srt_timestamp(self.start),
                           end=timedelta_to_srt_timestamp(self.end), text=self.content, translations=self.translations)
 
-    def to_srt(self, *, strict=True, eol="\n", target_language=None, revision: bool = False):
+    def to_srt(self, *, strict=True, eol="\n", translated: bool = True, revision: bool = False):
         r"""
         Convert the current :py:class:`Subtitle` to an SRT block.
 
@@ -211,18 +219,14 @@ class SRTBlock(Subtitle):
                             of the SRT block, which is a violation of the SRT
                             standard and may cause your media player to explode
         :param str eol: The end of line string to use (default "\\n")
-        :param target_language: if provided, tries to get the content string by language in self.translations_result
-        :param revision: if True, will return the revision content
+        :param translated: if provided, tries to get the translated version
+        :param revision: if True, will fall back to the revision content if selected is None
 
         :returns: The metadata of the current :py:class:`Subtitle` object as an
                   SRT formatted subtitle block
         :rtype: str
         """
-        if target_language:
-            output_content = self.translations.get(revision=revision)
-        else:
-            output_content = self.content
-
+        output_content = self.translations.get_selected(revision_fallback=revision) if translated else self.content
         output_proprietary = self.proprietary
         if output_proprietary:
             # output_proprietary is output directly next to the timestamp, so
@@ -249,11 +253,12 @@ class SRTBlock(Subtitle):
 
 
 class TranslationStates(str, Enum):
-    PENDING = 'pending'
-    IN_PROGRESS = 'in_progress'
-    IN_REVISION = 'in_revision'
-    DONE = 'done'
-    FAILED = 'failed'
+    PENDING = 'p'
+    IN_PROGRESS = 'ip'
+    IN_REVISION = 'ir'
+    SMART_AUDIT = 'sa'
+    DONE = 'd'
+    FAILED = 'f'
 
 
 class Translation(BaseCreateUpdateDocument):

@@ -50,11 +50,17 @@ Example 1: English: "It's raining cats and dogs." | Literal Translation: "זה �
 Example 2: English: "Break a leg!" | Literal Translation: "שבור רגל!" | Contextual Translation: "בהצלחה!"
 
 Rule: Make sure you follow the following rules and output a valid JSON, no matter what!
+
+Rule: If given translation is empty, provide one yourself instead.
 """
 
 
 def get_revisor_messages(*, rows, target_language):
-    data = {row.index: {'og': row.content, 'translation': row.translations.content} for row in rows}
+    data = {
+        row.index: {'og': row.content,
+                    'translation': row.translations.content if row.translations is not None else None}
+        for row in rows
+    }
     messages = [
         {"role": 'system', 'content': language_rules()},
         {
@@ -117,7 +123,7 @@ async def review_revisions_via_openai(
     if not rows:
         return {}
     messages = get_revisor_messages(rows=rows, target_language=target_language)
-    ret = await make_request(messages=messages, seed=_SEED, model=model, temperature=.15)
+    ret = await make_request(messages=messages, seed=_SEED, model=model, temperature=.25)
     ret = clean_resp(ret)
     t2 = time.time()
     logging.info('finished translating revisions via openai, took %s seconds', t2 - t1)

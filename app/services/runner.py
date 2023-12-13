@@ -12,19 +12,20 @@ from beanie import PydanticObjectId
 
 from common.consts import SrtString, XMLString, JsonStr
 from common.models.core import Translation, SRTBlock, TranslationStates
-from services.constructor import TranslatorV1, SubtitlesResults, TranslationRevisor
+from services.constructor import TranslatorV1, SubtitlesResults, TranslationRevisor, TranslationAuditor
 from common.config import settings
 from common.db import init_db
 
 
 class BaseHandler:
-    _results: SubtitlesResults | None = None
+    __slots__ = '_results', 'raw_content', 'translation_obj'
 
     def __init__(self, *, raw_content: str | bytes | SrtString | XMLString, translation_obj: Translation):
         if isinstance(raw_content, bytes):
             raw_content = raw_content.decode('utf-8')
         self.raw_content = raw_content
         self.translation_obj = translation_obj
+        self._results: SubtitlesResults | None = None
 
     def to_rows(self) -> list[SRTBlock]:
         raise NotImplementedError
@@ -36,7 +37,13 @@ class BaseHandler:
         self.translation_obj.state = state
         await self.translation_obj.save()
 
-    async def run(self, revise: bool = False, raw_results: bool = False, model: Literal['good', 'best'] = 'good'):
+    async def run(
+            self, *,
+            revise: bool = False,
+            smart_audit: bool = False,
+            raw_results: bool = False,
+            model: Literal['good', 'best'] = 'good'
+    ):
         await self._set_state(state=TranslationStates.IN_PROGRESS)
 
         translator = TranslatorV1(translation_obj=self.translation_obj, rows=self.to_rows(), model=model)
@@ -47,14 +54,25 @@ class BaseHandler:
         if revise:
             logging.info("Running Revisor app")
             await self._set_state(state=TranslationStates.IN_REVISION)
-            revisor = TranslationRevisor(translation_obj=self._results.translation_obj, rows=self._results.rows,
-                                         model=model)
-            self._results = await revisor(
-                num_rows_in_chunk=35, start_progress_val=65, middle_progress_val=85, end_progress_val=90
+            revisor = TranslationRevisor(
+                translation_obj=self._results.translation_obj, rows=self._results.rows, model=model
             )
-            st.session_state['bar'].progress(60, 'Finished Translation Revisions')
+            self._results = await revisor(
+                num_rows_in_chunk=35, start_progress_val=65, middle_progress_val=75, end_progress_val=85
+            )
             logging.info('finished running revisor')
             await self._set_state(state=TranslationStates.DONE)
+
+        if smart_audit:
+            try:
+                logging.info("Running Auditor app")
+                await self._set_state(state=TranslationStates.SMART_AUDIT)
+                auditor = TranslationAuditor(translation_obj=self._results.translation_obj, rows=self._results.rows)
+                self._results = await auditor(start_progress_val=87, middle_progress_val=93, end_progress_val=98)
+                logging.info('finished running auditor')
+            except Exception as e:
+                st.warning(f"Failed to run smart audit, skipping")
+                logging.error(f"Failed to run smart audit, skipping", exc_info=True)
 
         if raw_results:
             return self._results

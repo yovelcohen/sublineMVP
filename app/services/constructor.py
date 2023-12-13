@@ -14,6 +14,7 @@ from common.consts import SrtString, JsonStr, XMLString, LanguageCode
 from common.models.core import SRTBlock, Translation, TranslationContent, TranslationStates
 from common.utils import rows_to_srt
 from common.context_vars import total_stats
+from services.llm.auditor import audit_results_via_openai
 from services.llm.translator import translate_via_openai_func
 from services.llm.revisor import review_revisions_via_openai
 
@@ -71,7 +72,7 @@ class SubtitlesResults:
 
     def to_xml(self, root: ET, parent_map: dict[str, ET.Element], use_revision: bool = False) -> XMLString:
         parent_map = {k.strip(): v for k, v in parent_map.items()}
-        text_to_translation = {row.content: row.translations.get(revision=use_revision)
+        text_to_translation = {row.content: row.translations.get_selected(revision_fallback=use_revision)
                                for row in self.translation_obj.subtitles}
         for original_text, translated_text in text_to_translation.items():
             parent_map[original_text].text = translated_text
@@ -352,32 +353,26 @@ class TranslationRevisor(TranslatorV1):
             else:
                 self.unmatched['Translation Not Found'].append({'row_index': row.index, 'row_content': row.content})
                 unmatched += 1
-        print(unmatched)
-        print(success)
-    # def _add_translation_to_rows(self, *, rows: list[SRTBlock], results: dict[str, str]):
-    #     results = {k: v for k, v in results.items()}
-    #     rows_copy = rows.copy()
-    #     for row in rows:
-    #         if translation := results.pop(str(row.index), None):
-    #             row.translations.revision = translation
-    #         else:
-    #             rows_copy.remove(row)
-    #
-    #     if len(results) > 0:
-    #         unmatched = []
-    #         rows_contents = {row.content: row for row in rows_copy}
-    #         for source_sentence, translation in results.items():
-    #             if not rows_contents:
-    #                 break
-    #             most_similar_sentence, similarity_score = find_most_similar_sentence(
-    #                 source_sentence, list(rows_contents.keys())
-    #             )
-    #             if similarity_score > 0.8:
-    #                 row = rows_contents.pop(most_similar_sentence)
-    #                 row.translations.revision = translation
-    #             else:
-    #                 # TODO: Maybe Discard the translation?
-    #                 info = {'source_sentence': source_sentence, 'most_similar_sentence': most_similar_sentence,
-    #                         'similarity_score': similarity_score}
-    #                 logger.debug("Unmatched sentences", extra=info)
-    #                 unmatched.append(info)
+
+        logger.debug(f'added {success} translations to rows, {unmatched} rows were unmatched')
+
+
+class TranslationAuditor(TranslatorV1):
+    def __init__(self, *, translation_obj: Translation, **kwargs):
+        kwargs['model'] = 'best'
+        super().__init__(translation_obj=translation_obj, **kwargs)
+
+    async def _run_translation_hook(self, chunk):
+        return await audit_results_via_openai(rows=set(chunk), target_language=self.target_language)
+
+    def _add_translation_to_rows(self, *, rows: list[SRTBlock], results: dict[str, str]):
+        for row in rows:
+            if selection := results.get(str(row.index)):
+                if selection == '1':
+                    row.translations.selected = '1'
+                elif selection == '2':
+                    row.translations.selected = '2'
+                elif isinstance(selection, str) and not selection.isdigit():
+                    row.translations.selected = selection
+                else:
+                    raise ValueError(f'Invalid selection: {selection}')
