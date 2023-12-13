@@ -214,9 +214,9 @@ def subtitle_viewer():
             with st.echo():
                 st.video(
                     data=video_path,
-                    subtitles={'EN': original_content,
-                               'Hebrew V1': given_translation,
-                               'Hebrew V2': third_revision}
+                    # subtitles={'EN': original_content,
+                    #            'Hebrew V1': given_translation,
+                    #            'Hebrew V2': third_revision}
                 )
 
         st.divider()
