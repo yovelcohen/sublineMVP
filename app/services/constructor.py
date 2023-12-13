@@ -106,7 +106,8 @@ add_space = lambda s: re.sub(r'(?<!^)(?=[A-Z])', ' ', s)
 
 class BaseLLMTranslator:
     __slots__ = (
-        'rows', 'make_function_translation', 'failed_rows', 'sema', 'model', 'translation_obj', 'is_revision'
+        'rows', 'make_function_translation', 'failed_rows', 'sema', 'model', 'translation_obj', 'is_revision',
+        'iterations'
     )
 
     def __init__(
@@ -125,6 +126,7 @@ class BaseLLMTranslator:
         self.sema = asyncio.BoundedSemaphore(12)
         self.model = model
         self.is_revision = is_revision
+        self.iterations = 0
 
     @property
     def name(self):
@@ -242,6 +244,7 @@ class TranslatorV1(BaseLLMTranslator):
         logging.debug('amount of chunks: %s', len(text_chunks))
         tasks = [self._run_one_chunk(chunk=chunk, chunk_id=i) for i, chunk in enumerate(text_chunks, start=1)]
         await asyncio.gather(*tasks)
+        self.iterations += len(tasks)
 
     async def _translate_missing(
             self, *,
@@ -332,10 +335,12 @@ class TranslationRevisor(TranslatorV1):
         """
         attaches translation to each indexed row
         """
+        unmatched, success = 0, 0
         for row in rows:
             if translation := results.get(str(row.index), None):
                 if row.translations is not None:
                     row.translations.revision = translation
+                    success += 1
                 else:
                     row.translations = TranslationContent(content=translation)
                     info = {'row_index': row.index, 'row_content': row.content,
@@ -343,9 +348,12 @@ class TranslationRevisor(TranslatorV1):
                     logger.debug('Row didnt have V1 translation, assigning revision as V1',
                                  extra=info)
                     self.unmatched['Row didnt have V1 translation, assigning revision as V1'].append(info)
+                    unmatched += 1
             else:
                 self.unmatched['Translation Not Found'].append({'row_index': row.index, 'row_content': row.content})
-
+                unmatched += 1
+        print(unmatched)
+        print(success)
     # def _add_translation_to_rows(self, *, rows: list[SRTBlock], results: dict[str, str]):
     #     results = {k: v for k, v in results.items()}
     #     rows_copy = rows.copy()

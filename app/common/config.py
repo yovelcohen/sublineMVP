@@ -11,7 +11,7 @@ class Settings(BaseSettings):
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 180
     SSL_CA_CERTS: bool = True
     DATABASE_NAME: str = 'projects'
-    OPENAI_KEY: str = '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'
+    OPENAI_KEY: str = ''
     SYSTEM_EMAIL: str = 'yovell04@gmail.com'
     SENDGRID_API_KEY: str = 'Bearer 123'
 

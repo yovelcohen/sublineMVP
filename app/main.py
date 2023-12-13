@@ -179,7 +179,7 @@ def subtitle_viewer():
         name: str = st.text_input(label='Movie Or Series Name, i.e; FriendsS05E12')
         fname = lambda path: f'{path.parent.name}/{path.name}'
         paths = {fname(path): str(path) for path in find_relevant_video_files()}
-        video_path = st.selectbox(label='Video Local URL', options=list(paths.keys()))
+        video_path = st.selectbox(label='Video Local URL', options=[None] + list(paths.keys()))
         original_content: UploadedFile = st.file_uploader(
             "Upload Original Source Language Subtitle File",
             type=["srt", "xml", 'nfs'],
