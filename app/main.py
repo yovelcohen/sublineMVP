@@ -210,7 +210,7 @@ def subtitle_viewer():
         if video_path:
             with st.echo():
                 st.video(
-                    data=paths[video_path],
+                    data=video_path,
                     subtitles={'EN': original_content,
                                'Hebrew V1': given_translation,
                                'Hebrew V2': third_revision}
