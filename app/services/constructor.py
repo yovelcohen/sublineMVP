@@ -58,14 +58,14 @@ class SubtitlesResults:
             self,
             *,
             revision: bool = False,
-            target_language: str | None = None,
+            translated: bool = True,
             reindex=True,
             start_index=1,
             strict=True,
             eol=None
     ) -> SrtString:
-        return rows_to_srt(user_revision=revision, rows=self._srts, target_language=target_language, reindex=reindex,
-                           start_index=start_index, strict=strict, eol=eol)
+        return rows_to_srt(user_revision=revision, rows=self._srts, translated=translated, reindex=reindex,
+                           start_index=start_index, strict=strict, eol=eol, target_language=self.target_language)
 
     def to_json(self) -> JsonStr:
         return cast(JsonStr, self.translation_obj.model_dump_json())

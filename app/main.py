@@ -12,6 +12,7 @@ import streamlit.logger
 
 from beanie import PydanticObjectId, Document
 from beanie.exceptions import CollectionWasNotInitialized
+from pydantic import BaseModel, ConfigDict, model_validator
 from streamlit.runtime.uploaded_file_manager import UploadedFile
 
 from common.consts import SrtString
@@ -20,7 +21,6 @@ from common.config import settings
 from common.db import init_db
 from services.runner import run_translation, XMLHandler, SRTHandler
 from services.constructor import SubtitlesResults
-from streamlit_utils import find_relevant_video_files
 
 streamlit.logger.get_logger = logging.getLogger
 streamlit.logger.setup_formatter = None
@@ -41,6 +41,8 @@ logging.getLogger('openai').setLevel(logging.INFO)
 logging.getLogger('watchdog.observers').setLevel(logging.INFO)
 
 logger = logging.getLogger(__name__)
+
+st.set_page_config(layout="wide")
 
 
 class TranslationFeedback(Document):
@@ -64,11 +66,9 @@ async def translate(_name, file: str, _target_language, _model):
     t1 = time.time()
     logger.debug('starting translation request')
     task = Translation(target_language=_target_language, source_language='English', subtitles=[],
-                       project_id=PydanticObjectId())
+                       project_id=PydanticObjectId(), name=_name)
     await task.save()
-    ret: SubtitlesResults = await run_translation(
-        task=task, model=_model, revision=True, blob_content=file, raw_results=True
-    )
+    ret: SubtitlesResults = await run_translation(task=task, model=_model, blob_content=file, raw_results=True)
     st.session_state['name'] = ret
     t2 = time.time()
     logger.debug('finished translation, took %s seconds', t2 - t1)
@@ -122,8 +122,8 @@ def translate_form():
             results: SubtitlesResults = st.session_state['name']
             download_button(
                 name=name,
-                srt_string1=results.to_srt(revision=False, target_language=target_language),
-                srt_string2=results.to_srt(revision=True, target_language=target_language)
+                srt_string1=results.to_srt(revision=False, translated=True),
+                srt_string2=results.to_srt(revision=True, translated=True)
             )
 
 
@@ -175,6 +175,59 @@ async def save_to_db(rows, df, name):
     return obj
 
 
+def display_comparsion_panel(name, subtitles):
+    has_second_translation = (subtitles['Glix Translation 2'])
+    labels = ['Gender Mistake', 'Time Tenses', 'Names', 'Slang',
+              'Name "as is"', 'not fit in context', 'Plain Wrong Translation']
+
+    select_box_col = lambda label: st.column_config.SelectboxColumn(
+        width='medium', label=label, required=False, options=labels
+    )
+    select_cols = ['V1 Error 1', 'V1 Error 2']
+    config = {
+        'Original Language': st.column_config.TextColumn(width='large'),
+        'Glix Translation 1': st.column_config.TextColumn(width='large'),
+        'V1 Error 1': select_box_col('V1 Error 1'),
+    }
+    if 'Glix Translation 2' in subtitles:
+        select_cols.extend(['V2 Error 1', 'V2 Error 2'])
+        config.update(
+            {'Glix Translation 2': st.column_config.TextColumn(width='large'),
+             'V2 Error 1': select_box_col('V2 Error 1'),
+             'V2 Error 2': select_box_col('V2 Error 2'), }
+        )
+
+    # Find the length of the longest list
+    max_length = max(len(lst) for lst in subtitles.values())
+    # Pad shorter lists with None
+    for key in subtitles:
+        subtitles[key] += [None] * (max_length - len(subtitles[key]))
+
+    df = pd.DataFrame(subtitles)
+    for col in select_cols:
+        df[col] = pd.Series([None] * len(df), index=df.index)
+
+    edited_df = st.data_editor(df, key='df', column_config=config, use_container_width=True)
+
+    if st.button('Submit'):
+        marked_rows = []
+        for row in edited_df.to_dict(orient='records'):
+            for col in select_cols:
+                if row[col] not in ('None', None):
+                    marked_rows.append(row)
+                    break
+
+        feedback_obj = asyncio.run(save_to_db(marked_rows, edited_df, name=name))
+        st.write('Successfully Saved Results to DB!')
+        st.info(f"Num Rows: {len(edited_df)}\n Num Mistakes: {len(marked_rows)} ({feedback_obj.error_pct} %))")
+
+    if st.button('Export Results'):
+        blob = edited_df.to_csv(header=True)
+        st.download_button('Export', data=blob, file_name=f'{name}.csv', type='primary', on_click=clean)
+
+    # st_timeline()
+
+
 def subtitle_viewer():
     st.title("Subtitle Viewer")
 
@@ -222,53 +275,49 @@ def subtitle_viewer():
         st.divider()
         st.divider()
 
-        labels = ['Gender Mistake', 'Time Tenses', 'Names', 'Slang',
-                  'Name "as is"', 'not fit in context', 'Plain Wrong Translation']
-        subtitles = st.session_state['subtitles']
-        select_box_col = lambda label: st.column_config.SelectboxColumn(
-            width='medium', label=label, required=False, options=labels
-        )
-        select_cols = ['V1 Error 1', 'V1 Error 2', 'V2 Error 1', 'V2 Error 2']
-        config = {
-            'Original Language': st.column_config.TextColumn(width='large'),
-            'Glix Translation 1': st.column_config.TextColumn(width='large'),
-            'V1 Error 1': select_box_col('V1 Error 1'),
-            'V1 Error 2': select_box_col('V1 Error 2'),
-
-            'Glix Translation 2': st.column_config.TextColumn(width='large'),
-            'V2 Error 1': select_box_col('V2 Error 1'),
-            'V2 Error 2': select_box_col('V2 Error 2'),
-        }
-
-        # Find the length of the longest list
-        max_length = max(len(lst) for lst in subtitles.values())
-        # Pad shorter lists with None
-        for key in subtitles:
-            subtitles[key] += [None] * (max_length - len(subtitles[key]))
-
-        df = pd.DataFrame(subtitles)
-        for col in select_cols:
-            df[col] = pd.Series([None] * len(df), index=df.index)
-
-        edited_df = st.data_editor(df, key='df', column_config=config, use_container_width=True)
-
-        if st.button('Submit'):
-            marked_rows = []
-            for row in edited_df.to_dict(orient='records'):
-                for col in select_cols:
-                    if row[col] not in ('None', None):
-                        marked_rows.append(row)
-                        break
-
-            feedback_obj = asyncio.run(save_to_db(marked_rows, edited_df, name=name))
-            st.write('Successfully Saved Results to DB!')
-            st.info(f"Num Rows: {len(edited_df)}\n Num Mistakes: {len(marked_rows)} ({feedback_obj.error_pct} %))")
-
-        if st.button('Export Results'):
-            blob = edited_df.to_csv(header=True)
-            st.download_button('Export', data=blob, file_name=f'{name}.csv', type='primary', on_click=clean)
+        display_comparsion_panel(name=name, subtitles=st.session_state['subtitles'])
 
 
-page_names_to_funcs = {"Translate": translate_form, "Subtitle Viewer": subtitle_viewer}
+class Projection(BaseModel):
+    id: PydanticObjectId
+    name: str
+
+    @model_validator(mode='before')
+    @classmethod
+    def validate_name(cls, data: dict):
+        if '_id' in data:
+            _id = data.pop('_id')
+            data['id'] = _id
+        return data
+
+
+def subtitles_viewer_from_db():
+    translation_names = asyncio.run(Translation.find(Translation.name != None).project(Projection).to_list())
+    name_to_id = {proj.name: proj.id for proj in translation_names}
+    with st.form('forma'):
+        chosen_name = st.selectbox('Choose Translation', options=list(name_to_id.keys()))
+        submit = st.form_submit_button('Get')
+        if submit:
+            chosen_id = name_to_id[chosen_name]
+            translation = asyncio.run(Translation.get(chosen_id))
+            subtitles = {
+                'Original Language': [row.content for row in translation.subtitles],
+                'Glix Translation 1': [row.translations.content for row in translation.subtitles],
+            }
+            revs = [row.translations.revision for row in translation.subtitles]
+            if not all([r is None for r in revs]):
+                subtitles['Glix Translation 2'] = revs
+
+            st.session_state['subtitles'] = subtitles
+
+    if 'subtitles' in st.session_state:
+        display_comparsion_panel(name=chosen_name, subtitles=st.session_state['subtitles'])
+
+
+page_names_to_funcs = {
+    "Translate": translate_form,
+    "Subtitle Viewer": subtitle_viewer,
+    'Viewer From DB': subtitles_viewer_from_db
+}
 app_name = st.sidebar.selectbox("Choose app", page_names_to_funcs.keys())
 page_names_to_funcs[app_name]()

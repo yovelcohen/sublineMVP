@@ -23,5 +23,7 @@ class Settings(BaseSettings):
     AVATAR_CONTAINER: str = 'avatars'
     TRANSLATION_CONTAINER: str = ''
 
+    GEMINI_API_KEY: str = 'AIzaSyCQkvKpN-gSkK3pZGuiuhmZY-A-ilUea2k'
+
 
 settings = Settings()

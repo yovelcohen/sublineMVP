@@ -262,6 +262,7 @@ class TranslationStates(str, Enum):
 
 
 class Translation(BaseCreateUpdateDocument):
+    name: str | None = None  # temp
     project_id: PydanticObjectId
     target_language: str
     subtitles: set[SRTBlock]  # map from index to SRTBlock

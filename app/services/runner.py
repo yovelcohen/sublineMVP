@@ -143,7 +143,7 @@ class SRTHandler(BaseHandler):
         ]
 
     def parse_output(self, output: SubtitlesResults, use_revision: bool) -> SrtString:  # noqa
-        return output.to_srt(target_language=output.target_language, revision=use_revision)
+        return output.to_srt(revision=use_revision)
 
 
 class JSONHandler(BaseHandler):
@@ -158,7 +158,6 @@ async def run_translation(
         task: Translation,
         model,
         blob_content,
-        revision: bool = False,
         raw_results: bool = False
 ) -> SubtitlesResults | SrtString | JsonStr | XMLString:
     """
@@ -184,8 +183,8 @@ async def run_translation(
         handler = SRTHandler(raw_content=blob_content, translation_obj=task)
     else:
         raise ValueError(f"Unsupported file type: {detected_mime_type}")
-
-    results = await handler.run(revise=revision, model=model, raw_results=raw_results)
+    revise = True if model == 'good' else False
+    results = await handler.run(revise=revise, model=model, raw_results=raw_results)
     return results
 
 

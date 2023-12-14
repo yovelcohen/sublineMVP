@@ -123,7 +123,7 @@ async def review_revisions_via_openai(
     if not rows:
         return {}
     messages = get_revisor_messages(rows=rows, target_language=target_language)
-    ret = await make_request(messages=messages, seed=_SEED, model=model, temperature=.25)
+    ret = await make_request(messages=messages, seed=_SEED, model=model)
     ret = clean_resp(ret)
     t2 = time.time()
     logging.info('finished translating revisions via openai, took %s seconds', t2 - t1)

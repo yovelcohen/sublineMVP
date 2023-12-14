@@ -32,9 +32,13 @@ def report_stats(openai_resp):
 
 
 async def send_request(
-        messages, seed, model, max_tokens=None, top_p=None, temperature=None, num_options=None, retry_count=1
+        messages, seed, model, max_tokens=None, top_p=None, temperature=None, num_options=None, retry_count=1, **kwargs
 ) -> list[Choice]:
-    req = dict(messages=messages, seed=seed, response_format={"type": "json_object"}, model=MODELS[model])
+    if model in ('best', 'good'):
+        model = MODELS[model]
+    req = dict(messages=messages, seed=seed, model=model)
+    if 'tools' not in kwargs:
+        req['response_format'] = {"type": "json_object"}
     if top_p:
         req['top_p'] = top_p
     if temperature:
@@ -43,6 +47,8 @@ async def send_request(
         req['n'] = num_options
     if max_tokens:
         req['max_tokens'] = max_tokens
+    if kwargs:
+        req.update(kwargs)
     try:
         t1 = time.time()
         func_resp = await client.chat.completions.create(**req)

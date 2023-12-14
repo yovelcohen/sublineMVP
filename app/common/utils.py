@@ -23,11 +23,12 @@ def rows_to_srt(
         *,
         rows: list['SRTBlock'],
         user_revision: bool = False,
-        target_language: str | None = None,
+        translated: bool = True,
         reindex=True,
         start_index=1,
         strict=True,
-        eol=None
+        eol=None,
+        target_language: str | None = None
 ) -> SrtString:
     r"""
     Convert an iterator of :py:class:`Subtitle` objects to a string of joined
@@ -47,7 +48,7 @@ def rows_to_srt(
 
     :param rows: list of SRTBlocks to construct the SRT from
     :param user_revision: if True, will use the revised translation
-    :param target_language: if None will deafult to original text (self.content)
+    :param translated: if True, will use the translated text
     :param bool reindex: Whether to reindex subtitles based on start time
     :param int start_index: If reindexing, the index to start reindexing from
     :param bool strict: Whether to enable strict mode, see
@@ -57,7 +58,8 @@ def rows_to_srt(
               :py:class:`Subtitle` represented as an SRT block
     """
     subtitles = sort_and_reindex(subtitles=rows, start_index=start_index, in_place=True) if reindex else rows
-    ret = "".join(subtitle.to_srt(strict=strict, eol=eol, revision=user_revision) for subtitle in subtitles)
+    ret = "".join(subtitle.to_srt(strict=strict, eol=eol, revision=user_revision, translated=translated) for subtitle in
+                  subtitles)
     if target_language in ('Hebrew', 'heb', 'he'):
         ret = _correct_punctuation_alignment(ret)
     return cast(SrtString, ret)
