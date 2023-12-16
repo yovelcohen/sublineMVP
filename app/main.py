@@ -326,12 +326,11 @@ class Stats(BaseModel):
     totalChecked: int
     totalFeedbacks: int
     errorsCounter: dict[str, int]
-    errors: dict[str, list[str]]
+    errors: dict[str, list[dict[str, str | None]]]
     errorPct: float
 
 
 async def get_stats():
-
     feedbacks, sum_checked_rows = [], 0
     by_error = defaultdict(list)
     await init_db(settings, [TranslationFeedback])
