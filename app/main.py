@@ -331,12 +331,10 @@ class Stats(BaseModel):
 
 
 async def get_stats():
-    if not st.session_state.get('DB'):
-        docs, db = await init_db(settings, [TranslationFeedback])
-        st.session_state['DB'] = db
 
     feedbacks, sum_checked_rows = [], 0
     by_error = defaultdict(list)
+    await init_db(settings, [TranslationFeedback])
     async for feedback in TranslationFeedback.find_all():
         feedbacks.extend(feedback.marked_rows)
         sum_checked_rows += feedback.total_rows
