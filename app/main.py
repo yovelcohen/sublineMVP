@@ -14,8 +14,7 @@ import streamlit.logger
 
 from beanie import PydanticObjectId, Document
 from beanie.exceptions import CollectionWasNotInitialized
-from beanie.odm.operators.find.element import Exists
-from pydantic import BaseModel, ConfigDict, model_validator
+from pydantic import BaseModel, model_validator
 from streamlit.runtime.uploaded_file_manager import UploadedFile
 
 from common.consts import SrtString
@@ -76,6 +75,7 @@ async def translate(_name, file: str, _target_language, _model):
         st.session_state['name'] = ret
     except openai.APITimeoutError as e:
         st.error('Translation Failed Due To OpenAI API Timeout, Please Try Again Later')
+        await task.delete()
         raise e
 
     t2 = time.time()
@@ -331,6 +331,10 @@ class Stats(BaseModel):
 
 
 async def get_stats():
+    if not st.session_state.get('DB'):
+        docs, db = await init_db(settings, [TranslationFeedback])
+        st.session_state['DB'] = db
+
     feedbacks, sum_checked_rows = [], 0
     by_error = defaultdict(list)
     async for feedback in TranslationFeedback.find_all():
@@ -339,6 +343,7 @@ async def get_stats():
         for row in feedback.marked_rows:
             if row['V1 Error 1'] not in ('None', None):
                 by_error[row['V1 Error 1']].append(row)
+
     return Stats(
         totalChecked=sum_checked_rows,
         totalFeedbacks=len(feedbacks),

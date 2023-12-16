@@ -102,9 +102,6 @@ class SubtitlesResults:
         return cls._conditional_iter_rows(rows=rows, is_revision=is_revision, negate=False)
 
 
-add_space = lambda s: re.sub(r'(?<!^)(?=[A-Z])', ' ', s)
-
-
 class BaseLLMTranslator:
     __slots__ = (
         'rows', 'make_function_translation', 'failed_rows', 'sema', 'model', 'translation_obj', 'is_revision',
@@ -135,7 +132,7 @@ class BaseLLMTranslator:
 
     @classmethod
     def class_name(cls):
-        return add_space(cls.__qualname__)
+        return re.sub(r'(?<!^)(?=[A-Z])', ' ', cls.__qualname__)
 
     @property
     def target_language(self) -> LanguageCode:
@@ -181,7 +178,6 @@ class TranslatorV1(BaseLLMTranslator):
         st.session_state['currentVal'] = middle_progress_val
 
         results = SubtitlesResults(translation_obj=self.translation_obj)
-        num_errors = len(tuple(results.rows_missing_translations(rows=self.rows, is_revision=self.is_revision)))
         await self._translate_missing(translation_holder=results, num_rows_in_chunk=num_rows_in_chunk)
         st.session_state['bar'].progress(end_progress_val, f'Finished {cls_name} Translations')
         st.session_state['currentVal'] = end_progress_val
@@ -205,7 +201,6 @@ class TranslatorV1(BaseLLMTranslator):
     async def _update_translations(self, translations: dict, chunk: list[SRTBlock]) -> NoReturn:
         self._add_translation_to_rows(rows=chunk, results=translations)
         subtitles = self.translation_obj.subtitles.copy() | set(chunk)
-        subtitles = set(sorted(list(subtitles), key=lambda row: int(row.index)))
         self.translation_obj = await self.translation_obj.set({Translation.subtitles: subtitles})  # noqa
 
     async def _run_translation_hook(self, chunk):
@@ -260,7 +255,7 @@ class TranslatorV1(BaseLLMTranslator):
 
         recursion_count += 1
         logging.debug(
-            f'found %s missing translations result on LLM: {self.__class__.__qualname__}, translating them now',
+            f'found %s missing translations result on LLM: {self.class_name()}, translating them now',
             len(missing)
         )
         if recursion_count > 3:
