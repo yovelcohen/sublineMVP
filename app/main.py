@@ -3,7 +3,9 @@ import datetime
 import io
 import time
 import zipfile
+from collections import defaultdict
 
+import openai
 import pandas as pd
 import streamlit as st
 
@@ -12,6 +14,7 @@ import streamlit.logger
 
 from beanie import PydanticObjectId, Document
 from beanie.exceptions import CollectionWasNotInitialized
+from beanie.odm.operators.find.element import Exists
 from pydantic import BaseModel, ConfigDict, model_validator
 from streamlit.runtime.uploaded_file_manager import UploadedFile
 
@@ -20,7 +23,7 @@ from common.models.core import Translation, SRTBlock
 from common.config import settings
 from common.db import init_db
 from services.runner import run_translation, XMLHandler, SRTHandler
-from services.constructor import SubtitlesResults
+from services.constructor import SubtitlesResults, pct
 
 streamlit.logger.get_logger = logging.getLogger
 streamlit.logger.setup_formatter = None
@@ -68,8 +71,13 @@ async def translate(_name, file: str, _target_language, _model):
     task = Translation(target_language=_target_language, source_language='English', subtitles=[],
                        project_id=PydanticObjectId(), name=_name)
     await task.save()
-    ret: SubtitlesResults = await run_translation(task=task, model=_model, blob_content=file, raw_results=True)
-    st.session_state['name'] = ret
+    try:
+        ret: SubtitlesResults = await run_translation(task=task, model=_model, blob_content=file, raw_results=True)
+        st.session_state['name'] = ret
+    except openai.APITimeoutError as e:
+        st.error('Translation Failed Due To OpenAI API Timeout, Please Try Again Later')
+        raise e
+
     t2 = time.time()
     logger.debug('finished translation, took %s seconds', t2 - t1)
     st.session_state['bar'].progress(100, text='Done!')
@@ -176,7 +184,6 @@ async def save_to_db(rows, df, name):
 
 
 def display_comparsion_panel(name, subtitles):
-    has_second_translation = (subtitles['Glix Translation 2'])
     labels = ['Gender Mistake', 'Time Tenses', 'Names', 'Slang',
               'Name "as is"', 'not fit in context', 'Plain Wrong Translation']
 
@@ -300,9 +307,10 @@ def subtitles_viewer_from_db():
         if submit:
             chosen_id = name_to_id[chosen_name]
             translation = asyncio.run(Translation.get(chosen_id))
+            rows = sorted(list(translation.subtitles), key=lambda x: x.index)
             subtitles = {
-                'Original Language': [row.content for row in translation.subtitles],
-                'Glix Translation 1': [row.translations.content for row in translation.subtitles],
+                'Original Language': [row.content for row in rows],
+                'Glix Translation 1': [row.translations.content for row in rows],
             }
             revs = [row.translations.revision for row in translation.subtitles]
             if not all([r is None for r in revs]):
@@ -314,10 +322,56 @@ def subtitles_viewer_from_db():
         display_comparsion_panel(name=chosen_name, subtitles=st.session_state['subtitles'])
 
 
+class Stats(BaseModel):
+    totalChecked: int
+    totalFeedbacks: int
+    errorsCounter: dict[str, int]
+    errors: dict[str, list[str]]
+    errorPct: float
+
+
+async def get_stats():
+    feedbacks, sum_checked_rows = [], 0
+    by_error = defaultdict(list)
+    async for feedback in TranslationFeedback.find_all():
+        feedbacks.extend(feedback.marked_rows)
+        sum_checked_rows += feedback.total_rows
+        for row in feedback.marked_rows:
+            if row['V1 Error 1'] not in ('None', None):
+                by_error[row['V1 Error 1']].append(row)
+    return Stats(
+        totalChecked=sum_checked_rows,
+        totalFeedbacks=len(feedbacks),
+        errorsCounter={key: len(val) for key, val in by_error.items()},
+        errors=by_error,
+        errorPct=round((len(feedbacks) / sum_checked_rows) * 100, 2)
+    )
+
+
+def view_stats():
+    stats: Stats = asyncio.run(get_stats())
+    samples = {key: val[:5] for key, val in stats.errors.items()}
+    total_errors = sum(list(stats.errorsCounter.values()))
+    st.metric('Total Checked Rows', stats.totalChecked)
+    st.metric('Total Errors Count', total_errors)
+    for k, amount in stats.errorsCounter.items():
+        in_pct = pct(amount, total_errors)
+        st.metric(k, amount, f'{in_pct}% of total errors')
+
+    st.divider()
+    st.divider()
+    st.header('Samples')
+    for k, v in samples.items():
+        st.subheader(k)
+        st.table(pd.DataFrame(v))
+        st.divider()
+
+
 page_names_to_funcs = {
     "Translate": translate_form,
     "Subtitle Viewer": subtitle_viewer,
-    'Viewer From DB': subtitles_viewer_from_db
+    'Viewer From DB': subtitles_viewer_from_db,
+    'Engine Stats': view_stats
 }
 app_name = st.sidebar.selectbox("Choose app", page_names_to_funcs.keys())
 page_names_to_funcs[app_name]()

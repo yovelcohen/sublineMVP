@@ -75,11 +75,10 @@ def get_openai_messages(*, target_language, rows):
     return messages
 
 
-def validate_and_parse_answer(answer: Choice, preferred_suffix='}'):
+def validate_and_parse_answer(json_str: str, *, preferred_suffix='}'):
     """
     validate the answer from openai and return the parsed answer
     """
-    json_str = answer.message.content.strip()
     pop_last = False
     try:
         fixed_json = json_repair.loads(json_str)
@@ -92,7 +91,6 @@ def validate_and_parse_answer(answer: Choice, preferred_suffix='}'):
         if isinstance(json_str, dict):
             fixed_json = json_str
         else:
-            pop_last = True
             if not json_str.endswith(preferred_suffix):
                 last_char = json_str[-1]
                 if last_char.isalnum():
@@ -105,6 +103,7 @@ def validate_and_parse_answer(answer: Choice, preferred_suffix='}'):
                     raise e
                 try:
                     fixed_json = json_repair.loads(json_str)
+                    pop_last = True
                 except ValueError as e:
                     logging.exception('failed to parse answer from openai, fixed to_json manually')
                     raise e
@@ -154,10 +153,17 @@ async def make_openai_request(
     :returns A dict, where keys are versions, the values are tuples of dict[row_index, translation]
              and the last valid row index that was loaded from the JSON.
     """
-    choices = await send_request(messages=messages, seed=seed, model=model, temperature=temperature, top_p=top_p,
-                                 num_options=num_options, max_tokens=max_tokens)
-    choice = choices[0]
-    answer, last_idx = validate_and_parse_answer(answer=choice, preferred_suffix=preferred_suffix)
+    t1 = time.time()
+    response = await send_request(messages=messages, seed=seed, model=model, temperature=temperature, top_p=top_p,
+                                  num_options=num_options, max_tokens=max_tokens, stream=True)
+    collected_chunks = []
+    async for chunk in response:
+        chunk_message = chunk.choices[0].delta.content
+        if chunk_message:
+            collected_chunks.append(chunk_message)
+
+    json_str = ''.join(collected_chunks)
+    answer, last_idx = validate_and_parse_answer(json_str, preferred_suffix=preferred_suffix)
     return answer, last_idx
 
 
@@ -165,8 +171,8 @@ async def translate_via_openai_func(
         *,
         rows: list['SRTBlock'],
         target_language: str,
-        tokens_safety_buffer: int = 400,
         model: Literal['best', 'good'] = 'best',
+        **kwargs
 ) -> dict[str, str]:
     """
     :param model: GPT Model to use
@@ -183,5 +189,8 @@ async def translate_via_openai_func(
     messages = get_openai_messages(rows=rows, target_language=target_language)
     answer, last_idx = await make_openai_request(messages=messages, seed=_SEED, model=model, temperature=.1)
     t2 = time.time()
-    logging.info('finished translating via openai, took %s seconds', t2 - t1)
+    logging.info(
+        'finished translating via openai',
+        extra={'took': t2 - t1, 'len_returned_rows': len(answer), 'amount_rows': len(rows)}
+    )
     return answer

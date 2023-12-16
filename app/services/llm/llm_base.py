@@ -20,7 +20,7 @@ class TokenCountTooHigh(ValueError):
 
 
 MODELS = {'good': 'gpt-3.5-turbo-1106', 'best': 'gpt-4-1106-preview'}
-client = openai.AsyncOpenAI(api_key=settings.OPENAI_KEY, timeout=Timeout(60 * 3))
+client = openai.AsyncOpenAI(api_key=settings.OPENAI_KEY, timeout=Timeout(60 * 2))
 
 
 def report_stats(openai_resp):
@@ -54,8 +54,8 @@ async def send_request(
         func_resp = await client.chat.completions.create(**req)
         t2 = time.time()
         logging.info('finished openai request, took %s seconds', t2 - t1)
-        report_stats(func_resp)
-        return func_resp.choices
+        # report_stats(func_resp)
+        return func_resp
     except openai.APITimeoutError as e:
         logging.exception('openai timeout error, sleeping for 5 seconds and retrying')
         await asyncio.sleep(5)
