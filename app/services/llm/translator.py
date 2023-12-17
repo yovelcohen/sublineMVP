@@ -30,18 +30,23 @@ Example 1: "He is a doctor" → "הוא רופא" (for male) or "היא רופא
 Example 2: "His book" → "הספר שלו" (for male) or "הספר שלה" (for female).
 Example 3: "You guys" -> ״אתם״ או ״חברה״
 Example 4: "Allison, You're crazy"  → ״אליסון, את משוגעת״  (This rule assumes that <feminine name> followed by "you" means את), same applies for male names. 
-Example 5: "I saw you Mom, you did that" → "ראיתי אותך אמא, את עשית זה" infering the use of "את" instead of "אתה" based on the word "Mom".
-  
+Example 5: "I saw you Mom, you did that" → "ראיתי אותך אמא, את עשית זה" inferring the use of "את" instead of "אתה" based on the word "Mom".
+Example 6: "Let me tell you something, Miss." → "תני לי לספר לך משהו גברתי" inferring the use of ״תני״ instead of ״תן״ because the sentece talks to a "Miss".  
+
 - Idiomatic Expressions: Find Hebrew equivalents for English idioms.
 Example 1: "Piece of cake" → Hebrew idiom for something very easy.
 Example 2: "Break a leg" → Hebrew idiom for good luck.
 Example 3: Use of the world "Fuck" → Fuck You (לעזאזל איתך), usually use לעזאזל
-Example 4: "You Two" → שניכם instead of אתם שניים
+Example 4: "You Two" → "שניכם" instead of "אתם שניים"
+Example 5: "Jesus Christ" → "אלוהים ישמור" instead of "ישו משיח"
 
-- Syntax Adaptation: Adjust sentence structure for Hebrew syntax.
+- Syntax Adaptation and proper time tenses usage, Adjust sentence structure for Hebrew syntax.
 Example 1: "She loves dogs" (Subject-Verb-Object in English) → "היא אוהבת כלבים" (Hebrew structure).
 Example 2: "I am reading a book" → Adjusted to fit Hebrew verb-subject-object order.
 Example 3: "I was going to do something" → ״עמדתי לעשות משהו״ instead of ״הייתי הולך ל״ - adjusted because of the "to do" instead of a place
+Example 4: "but you were right." → ״אבל אתה צודק״ instead of "אבל היית צודק."
+Example 5: "I'm sorry I was so hard on you before." → ״מצטער שהייתי קשה איתך קודם״ instead of ״ אני מצטער שהייתי כל כך קשה עליך קודם.״
+Example 6: "Who does she work for?" → "אצל מי היא עובדת?" instead of ״למי היא עובדת״
 
 - Root System Usage: Apply the Hebrew root system in translations_result.
 Example 1: English "write," "writer" → Hebrew roots for "write" (כתב) and related forms.
@@ -63,6 +68,12 @@ Example 3: "You should have never gone there" → ״לא היית צריך לל�
 - Right-To-Left Punctuation
 Example 1: "Hello, World!" → "שלום, עולם!".
 Example 2: "did You go There?" → "הלכת לשם?".
+
+- Appropriate Use of Prepositions for Possessive ConstructionsEnsure accurate use of prepositions like "ב" and "ל" in Hebrew translations to reflect correct possessive forms and relationships.
+Example 1: "What size Cadillac do you take?" → Correct translation: "באיזה גודל קדילק אתה לוקח?" (Avoid using "ב" incorrectly for possessive constructs).
+Example 2: "Suggesting that our customers have a..." → Correct translation: "לרמוז שללקוחות שלנו יש..." (Use "ל" correctly to indicate suggestion or implication).
+Example 3: "The teacher's book" → "הספר של המורה" (Correct use of "של" for showing possession).
+Example 4: "In the garden" → "בגן" (Correct use of "ב" for indicating a physical location).
 """
 
 
@@ -178,7 +189,6 @@ async def translate_via_openai_func(
     :param model: GPT Model to use
     :param rows: list of srt rows to translate
     :param target_language: translation's target language
-    :param tokens_safety_buffer: a safety buffer to remove from max tokens, in order to avoid openai token limit errors
 
     :returns a dict from row index to its translation and the last index that was NOT translated,
              if -1 then all rows were translated.

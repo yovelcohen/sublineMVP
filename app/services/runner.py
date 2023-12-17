@@ -44,39 +44,44 @@ class BaseHandler:
             raw_results: bool = False,
             model: Literal['good', 'best'] = 'good'
     ):
-        await self._set_state(state=TranslationStates.IN_PROGRESS)
+        try:
+            await self._set_state(state=TranslationStates.IN_PROGRESS)
 
-        translator = TranslatorV1(translation_obj=self.translation_obj, rows=self.to_rows(), model=model)
-        st.session_state['bar'].progress(15, 'Starting Translation')
-        self._results = await translator(
-            num_rows_in_chunk=75, start_progress_val=30, middle_progress_val=45, end_progress_val=60
-        )
-        if revise:
-            logging.info("Running Revisor app")
-            await self._set_state(state=TranslationStates.IN_REVISION)
-            revisor = TranslationRevisor(
-                translation_obj=self._results.translation_obj, rows=self._results.rows, model=model
+            translator = TranslatorV1(translation_obj=self.translation_obj, rows=self.to_rows(), model=model)
+            st.session_state['bar'].progress(15, 'Starting Translation')
+            self._results = await translator(
+                num_rows_in_chunk=75, start_progress_val=30, middle_progress_val=45, end_progress_val=60
             )
-            self._results = await revisor(
-                num_rows_in_chunk=35, start_progress_val=65, middle_progress_val=75, end_progress_val=85
-            )
-            logging.info('finished running revisor')
-            await self._set_state(state=TranslationStates.DONE)
+            if revise:
+                logging.info("Running Revisor app")
+                await self._set_state(state=TranslationStates.IN_REVISION)
+                revisor = TranslationRevisor(
+                    translation_obj=self._results.translation_obj, rows=self._results.rows, model=model
+                )
+                self._results = await revisor(
+                    num_rows_in_chunk=35, start_progress_val=65, middle_progress_val=75, end_progress_val=85
+                )
+                logging.info('finished running revisor')
+                await self._set_state(state=TranslationStates.DONE)
 
-        if smart_audit:
-            try:
-                logging.info("Running Auditor app")
-                await self._set_state(state=TranslationStates.SMART_AUDIT)
-                auditor = TranslationAuditor(translation_obj=self._results.translation_obj, rows=self._results.rows)
-                self._results = await auditor(start_progress_val=87, middle_progress_val=93, end_progress_val=98)
-                logging.info('finished running auditor')
-            except Exception as e:
-                st.warning(f"Failed to run smart audit, skipping")
-                logging.error(f"Failed to run smart audit, skipping", exc_info=True)
+            if smart_audit:
+                try:
+                    logging.info("Running Auditor app")
+                    await self._set_state(state=TranslationStates.SMART_AUDIT)
+                    auditor = TranslationAuditor(translation_obj=self._results.translation_obj, rows=self._results.rows)
+                    self._results = await auditor(start_progress_val=87, middle_progress_val=93, end_progress_val=98)
+                    logging.info('finished running auditor')
+                except Exception as e:
+                    st.warning(f"Failed to run smart audit, skipping")
+                    logging.error(f"Failed to run smart audit, skipping", exc_info=True)
 
-        if raw_results:
-            return self._results
-        return self.parse_output(self._results)
+            if raw_results:
+                return self._results
+            return self.parse_output(self._results)
+        except Exception as e:
+            await self._set_state(state=TranslationStates.FAILED)
+            logging.error(f"Failed to run translation", exc_info=True)
+            raise e
 
     @property
     def results_holder(self):

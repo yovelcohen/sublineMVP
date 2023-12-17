@@ -17,6 +17,7 @@ class BaseDocument(Document):
         json_schema_extra=json_schema_extra,
         populate_by_name=True,
         alias_generator=document_alias_generator,
+        validate_assignment=True
     )
 
 

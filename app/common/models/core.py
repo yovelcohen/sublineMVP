@@ -261,13 +261,56 @@ class TranslationStates(str, Enum):
     FAILED = 'f'
 
 
+class Ages(int, Enum):
+    ZERO = 0
+    THREE = 3
+    SIX = 6
+    TWELVE = 12
+    SIXTEEN = 16
+    EIGHTEEN = 18
+
+
+class Genres(str, Enum):
+    NOOP = 'noop'
+    ACTION = 'action'
+    ADVENTURE = 'adventure'
+    ANIMATION = 'animation'
+    BIOGRAPHY = 'biography'
+    COMEDY = 'comedy'
+    CRIME = 'crime'
+    DOCUMENTARY = 'documentary'
+    DRAMA = 'drama'
+    FAMILY = 'family'
+    FANTASY = 'fantasy'
+    FILM_NOIR = 'film-noir'
+    HISTORY = 'history'
+    HORROR = 'horror'
+    MUSIC = 'music'
+    MUSICAL = 'musical'
+    MYSTERY = 'mystery'
+    ROMANCE = 'romance'
+    SCI_FI = 'sci-fi'
+    SHORT_FILM = 'short-film'
+    SPORT = 'sport'
+    SUPERHERO = 'superhero'
+    THRILLER = 'thriller'
+    WAR = 'war'
+    WESTERN = 'western'
+
+
 class Translation(BaseCreateUpdateDocument):
     name: str | None = None  # temp
     project_id: PydanticObjectId
     target_language: str
+    age: Ages = Ages.ZERO
+    main_genre: Genres = Genres.NOOP
+    additional_genres: list[Genres] = Field(default_factory=list)
+
     subtitles: set[SRTBlock]  # map from index to SRTBlock
+
     state: TranslationStates = TranslationStates.PENDING
     tokens_cost: dict = Field(default_factory=dict)
+    took: float = 0
 
     class Settings:
         indexes = ["orderSubtitles", [("subtitles.index", pymongo.ASCENDING)]]

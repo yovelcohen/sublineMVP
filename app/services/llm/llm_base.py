@@ -3,11 +3,13 @@ import copy
 import logging
 import time
 
-import json_repair
 import openai
 import tiktoken
 from httpx import Timeout
+from openai import AsyncStream
+from openai.types.chat import ChatCompletion, ChatCompletionChunk
 from openai.types.edit import Choice
+import streamlit as st
 
 from common.config import settings
 from common.context_vars import total_stats
@@ -33,7 +35,7 @@ def report_stats(openai_resp):
 
 async def send_request(
         messages, seed, model, max_tokens=None, top_p=None, temperature=None, num_options=None, retry_count=1, **kwargs
-) -> list[Choice]:
+) -> list[Choice] | ChatCompletion | AsyncStream[ChatCompletionChunk]:
     if model in ('best', 'good'):
         model = MODELS[model]
     req = dict(messages=messages, seed=seed, model=model)
@@ -58,11 +60,17 @@ async def send_request(
         return func_resp
     except openai.APITimeoutError as e:
         logging.exception('openai timeout error, sleeping for 5 seconds and retrying')
+        if not st.session_state.get('openAIErrorMsg'):
+            st.session_state['openAIErrorMsg'] = True
+            st.error('OpenAI is taking too long to respond, please wait...')
+
         await asyncio.sleep(5)
         if retry_count == 3:
             logging.exception('openai timeout error, failed after 3 retries')
             raise e
         if model == 'best':
             model = 'good'  # downgrade to avoid limit errors
+        if st.session_state.get('openAIErrorMsg'):
+            del st.session_state['openAIErrorMsg']
         return await send_request(messages=messages, seed=seed, model=model, temperature=temperature, top_p=top_p,
                                   retry_count=retry_count + 1, num_options=num_options, max_tokens=max_tokens)
