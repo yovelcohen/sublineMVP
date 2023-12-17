@@ -20,7 +20,7 @@ from pydantic import BaseModel, model_validator
 from streamlit.runtime.uploaded_file_manager import UploadedFile
 
 from common.consts import SrtString
-from common.models.core import Translation, SRTBlock, Ages
+from common.models.core import Translation, SRTBlock, Ages, Genres
 from common.config import settings
 from common.db import init_db
 from services.runner import run_translation, XMLHandler, SRTHandler
@@ -67,13 +67,21 @@ if not st.session_state.get('DB'):
     logger.info('Finished DB Connection And collections init process')
 
 
+def string_to_enum(value: str, enum_class):
+    for enum_member in enum_class:
+        if enum_member.value == value or enum_member.value == value.lower():
+            return enum_member
+    raise ValueError(f"{value} is not a valid value for {enum_class.__name__}")
+
+
 async def translate(_name, file: str, _target_language, main_genre, age: Ages, additional_genres: list[str] = None):
     t1 = time.time()
     logger.debug('starting translation request')
     task = Translation(target_language=_target_language, source_language='English', subtitles=[],
-                       project_id=PydanticObjectId(), name=_name, main_genre=main_genre, age=age)
+                       project_id=PydanticObjectId(), name=_name, main_genre=string_to_enum(main_genre, Genres),
+                       age=age)
     if additional_genres:
-        task.additional_genres = additional_genres
+        task.additional_genres = [string_to_enum(g, Genres) for g in additional_genres]
 
     await task.save()
     try:
