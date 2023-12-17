@@ -204,19 +204,21 @@ def parse_file(uploaded_file) -> list[str]:
     return [row.content for row in handler.to_rows()]
 
 
-async def save_to_db(rows, df, name, last_row: SRTBlock):
-    params = dict(marked_rows=rows, total_rows=len(df), name=name, duration=last_row.end)
-    try:
-        obj = TranslationFeedback(**params)
-    except CollectionWasNotInitialized as e:
-        await init_db(settings, [TranslationFeedback])
-        obj = TranslationFeedback(**params)
-    await obj.save()
-    return obj
+async def save_to_db(rows, df, name, last_row: SRTBlock, existing_feedback: TranslationFeedback | None = None):
+    if not existing_feedback:
+        params = dict(marked_rows=rows, total_rows=len(df), name=name, duration=last_row.end)
+        try:
+            existing_feedback = TranslationFeedback(**params)
+        except CollectionWasNotInitialized as e:
+            await init_db(settings, [TranslationFeedback])
+            existing_feedback = TranslationFeedback(**params)
+
+    await existing_feedback.save()
+    return existing_feedback
 
 
 def display_comparison_panel(name, subtitles, last_row: SRTBlock):
-    labels = ['Gender Mistake', 'Time Tenses', 'Names', 'Slang',
+    labels = ['Gender Mistake', 'Time Tenses', 'Names', 'Slang', 'Prepositions',
               'Name "as is"', 'not fit in context', 'Plain Wrong Translation']
 
     select_box_col = lambda label: st.column_config.SelectboxColumn(
@@ -237,15 +239,35 @@ def display_comparison_panel(name, subtitles, last_row: SRTBlock):
              'V2 Error 2': select_box_col('V2 Error 2')}
         )
 
-    # Find the length of the longest list
     max_length = max(len(lst) for lst in subtitles.values())
     # Pad shorter lists with None
     for key in subtitles:
         subtitles[key] += [None] * (max_length - len(subtitles[key]))
 
     df = pd.DataFrame(subtitles)
-    for col in select_cols:
-        df[col] = pd.Series([None] * len(df), index=df.index)
+    fb = TranslationFeedback.find(TranslationFeedback.name == name).first_or_none()
+    existing_feedback = asyncio.run(fb)
+
+    def get_row_feedback(row, k=1):
+        if k == 1:
+            ke = 'V1 Error 1' if 'V1 Error 1' in row else 'Error 1'
+        else:
+            ke = 'V2 Error 1' if 'V2 Error 1' in row else 'Error 2'
+        return row[ke]
+
+    TRANSLATION_KEY = 'Glix Translation 1'
+    if existing_feedback:
+        text_to_feedback1 = {row[TRANSLATION_KEY]: get_row_feedback(row, 1) for row in
+                             existing_feedback.marked_rows}
+        text_to_feedback2 = {row[TRANSLATION_KEY]: get_row_feedback(row, 2) for row in
+                             existing_feedback.marked_rows}
+        df['Error 1'] = df[TRANSLATION_KEY].apply(lambda x: text_to_feedback1.get(x, None))
+        df['Error 2'] = df[TRANSLATION_KEY].apply(lambda x: text_to_feedback2.get(x, None))
+        map_ = {row[TRANSLATION_KEY]: row for row in existing_feedback.marked_rows}
+    else:
+        for col in select_cols:
+            df[col] = pd.Series([None] * len(df), index=df.index)
+        map_ = {}
 
     edited_df = st.data_editor(df, key='df', column_config=config, use_container_width=True)
 
@@ -254,10 +276,16 @@ def display_comparison_panel(name, subtitles, last_row: SRTBlock):
         for row in edited_df.to_dict(orient='records'):
             for col in select_cols:
                 if row[col] not in ('None', None):
-                    marked_rows.append(row)
+                    if row_to_update := map_.get(row[TRANSLATION_KEY]):  # update
+                        row_to_update[col] = row[col]
+                        marked_rows.append(row_to_update)
+                    else:
+                        marked_rows.append(row)
                     break
 
-        feedback_obj = asyncio.run(save_to_db(marked_rows, edited_df, name=name, last_row=last_row))
+        feedback_obj = asyncio.run(
+            save_to_db(marked_rows, edited_df, name=name, last_row=last_row, existing_feedback=existing_feedback)
+        )
         st.write('Successfully Saved Results to DB!')
         st.info(f"Num Rows: {len(edited_df)}\n Num Mistakes: {len(marked_rows)} ({feedback_obj.error_pct} %))")
 
@@ -335,9 +363,10 @@ async def get_stats():
         sum_checked_rows += feedback.total_rows
         all_names.add(feedback.name)
         for row in feedback.marked_rows:
-            if row['V1 Error 1'] not in ('None', None):
+            key = 'V1 Error 1' if 'V1 Error 1' in row else 'Error 1'
+            if row[key] not in ('None', None):
                 row['Name'] = feedback.name
-                by_error[row['V1 Error 1']].append(row)
+                by_error[row[key]].append(row)
 
     data = await get_translations_df()
     for translation in data:

@@ -69,7 +69,7 @@ Example 3: "You should have never gone there" → ״לא היית צריך לל�
 Example 1: "Hello, World!" → "שלום, עולם!".
 Example 2: "did You go There?" → "הלכת לשם?".
 
-- Appropriate Use of Prepositions for Possessive ConstructionsEnsure accurate use of prepositions like "ב" and "ל" in Hebrew translations to reflect correct possessive forms and relationships.
+- Appropriate Use of Prepositions for Possessive Constructions, Ensure accurate use of prepositions like "ב" and "ל" in Hebrew translations to reflect correct possessive forms and relationships.
 Example 1: "What size Cadillac do you take?" → Correct translation: "באיזה גודל קדילק אתה לוקח?" (Avoid using "ב" incorrectly for possessive constructs).
 Example 2: "Suggesting that our customers have a..." → Correct translation: "לרמוז שללקוחות שלנו יש..." (Use "ל" correctly to indicate suggestion or implication).
 Example 3: "The teacher's book" → "הספר של המורה" (Correct use of "של" for showing possession).
