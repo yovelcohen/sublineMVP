@@ -328,7 +328,7 @@ class Stats(BaseModel):
 async def get_stats():
     feedbacks, sum_checked_rows = [], 0
     by_error = defaultdict(list)
-    all_names = {}
+    all_names = set()
     await init_db(settings, [TranslationFeedback])
     async for feedback in TranslationFeedback.find_all():
         feedbacks.extend(feedback.marked_rows)
