@@ -7,6 +7,7 @@ import openai
 import tiktoken
 from httpx import Timeout
 from openai import AsyncStream
+from openai.types import CompletionUsage
 from openai.types.chat import ChatCompletion, ChatCompletionChunk
 from openai.types.edit import Choice
 import streamlit as st
@@ -22,11 +23,11 @@ class TokenCountTooHigh(ValueError):
 
 
 MODELS = {'good': 'gpt-3.5-turbo-1106', 'best': 'gpt-4-1106-preview'}
-client = openai.AsyncOpenAI(api_key=settings.OPENAI_KEY, timeout=Timeout(60 * 2))
+client = openai.AsyncOpenAI(api_key=settings.OPENAI_KEY, timeout=Timeout(60 * 5))
 
 
-def report_stats(openai_resp):
-    stats = openai_resp.usage.model_dump()
+def report_stats(openai_resp: CompletionUsage):
+    stats = openai_resp.model_dump()
     logging.info('openai stats: %s', stats)
     val = copy.deepcopy(total_stats.get())
     val.update(stats)

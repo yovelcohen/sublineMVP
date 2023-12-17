@@ -117,12 +117,7 @@ def download_button(name: str, srt_string1: SrtString, srt_string2: SrtString = 
     st.download_button(label='Download Zip', data=zip_buffer, file_name=f'{name}_subtitles.zip', mime='application/zip')
 
 
-GENRES = [
-    "Action", "Adventure", "Animation", "Biography", "Comedy", "Crime", "Documentary",
-    "Drama", "Family", "Fantasy", "Film Noir", "History", "Horror", "Musical", "Mystery",
-    "Romance", "Sci-Fi", "Short", "Sport", "Superhero", "Thriller", "War", "Western",
-    "Music", "Reality-TV", "Game-Show", "Talk-Show", "News", "Educational", "Art"
-]
+GENRES_MAP = {member.name: member.value for member in Genres}  # noqa
 
 AGES_MAP = {
     '0+': Ages.ZERO,
@@ -142,8 +137,9 @@ def translate_form():
             source_language = st.selectbox("Source Language", ["English", "Hebrew", 'French', 'Arabic', 'Spanish'])
             target_language = st.selectbox("Target Language", ["Hebrew", 'French', 'Arabic', 'Spanish'])
             age = st.selectbox('Age', options=list(AGES_MAP.keys()), index=4)
-            genre1 = st.selectbox('Category', options=GENRES, key='genre1')
-            additionalGenres = st.multiselect('Optional Additional Genres', options=GENRES, key='genre2')
+            genre1 = st.selectbox('Category', options=list(GENRES_MAP.keys()), key='genre1')
+            additionalGenres = st.multiselect('Optional Additional Genres', options=(GENRES_MAP.keys()),
+                                              key='genreExtra')
 
             assert source_language != target_language
             submitted = st.form_submit_button("Translate")
@@ -158,8 +154,10 @@ def translate_form():
                     st.session_state['stage'] = 1
                     string_data = uploaded_file.getvalue().decode("utf-8")
                 asyncio.run(
-                    translate(_name=name, file=string_data, _target_language=target_language,
-                              main_genre=genre1, additional_genres=additionalGenres, age=AGES_MAP[age])
+                    translate(
+                        _name=name, file=string_data, _target_language=target_language, age=AGES_MAP[age],
+                        main_genre=GENRES_MAP[genre1], additional_genres=[GENRES_MAP[g] for g in additionalGenres]
+                    )
                 )
 
         if st.session_state.get('name', False):
@@ -490,7 +488,8 @@ def manage_existing():
     edited_df = st.data_editor(pd.DataFrame(data), use_container_width=True)
 
     if st.button('Delete'):
-        to_delete = [proj[0] for idx, proj in edited_df.iterrows() if proj[-1] is True]
+        rows = edited_df.to_dict(orient='records')
+        to_delete = [proj['name'] for proj in rows if proj['Delete'] is True]
         if to_delete:
             ack = asyncio.run(delete_docs(to_delete=to_delete))
             logger.info(f'Deleted {ack} Projects')

@@ -296,6 +296,7 @@ class Genres(str, Enum):
     THRILLER = 'thriller'
     WAR = 'war'
     WESTERN = 'western'
+    BASED_ON_REAL_STORY = 'based-on-real-story'
 
 
 class Translation(BaseCreateUpdateDocument):
