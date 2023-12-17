@@ -4,10 +4,11 @@ import time
 from typing import Literal
 
 import json_repair
+from openai.types import CompletionUsage
 from openai.types.edit import Choice
 
 from common.models.core import SRTBlock
-from services.llm.llm_base import send_request
+from services.llm.llm_base import send_request, encoder, report_stats
 
 _SEED = 99
 
@@ -164,7 +165,6 @@ async def make_openai_request(
     :returns A dict, where keys are versions, the values are tuples of dict[row_index, translation]
              and the last valid row index that was loaded from the JSON.
     """
-    t1 = time.time()
     response = await send_request(messages=messages, seed=seed, model=model, temperature=temperature, top_p=top_p,
                                   num_options=num_options, max_tokens=max_tokens, stream=True)
     collected_chunks = []
@@ -174,6 +174,14 @@ async def make_openai_request(
             collected_chunks.append(chunk_message)
 
     json_str = ''.join(collected_chunks)
+    usage = CompletionUsage(
+        completion_tokens=len(encoder.encode(json_str)),
+        prompt_tokens=len(encoder.encode(json.dumps(messages))),
+        total_tokens=len(encoder.encode(json_str)) + len(encoder.encode(json.dumps(messages)))
+    )
+    report_stats(usage)
+
+    logging.debug(f'openai request finished, token cost: {usage.model_dump()}')
     answer, last_idx = validate_and_parse_answer(json_str, preferred_suffix=preferred_suffix)
     return answer, last_idx
 

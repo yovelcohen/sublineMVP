@@ -62,7 +62,7 @@ async def send_request(
         logging.exception('openai timeout error, sleeping for 5 seconds and retrying')
         if not st.session_state.get('openAIErrorMsg'):
             st.session_state['openAIErrorMsg'] = True
-            st.error('OpenAI is taking too long to respond, please wait...')
+            st.warning('OpenAI is taking too long to respond, please wait...')
 
         await asyncio.sleep(5)
         if retry_count == 3:
