@@ -26,7 +26,7 @@ Example 3: "Alien" → Will probably mean "חייזר" and not ״זר״ which us
 Example 5: "Lying" → שקרן instead of כוזב OR "I'm Taking a shit" → based on context such as who speaks/spoken to, אני מחרבן or אני מחרבנת , example of day to day language
 Example 6: "I don't deserve this" → Hebrew equivalent of ״זה לא מגיע לי״
 Example 7: "I've been sleeping with him" -> ״אני שוכבת איתו״ instead of ״אני ישנה איתו״ → based on the fact that most of the times, in media, sleeping with someone refers to sex and not actually sleep.
- 
+
 - Gender-Specific Terms: Accurately translate gender-specific terms based on the context.
 Example 1: "He is a doctor" → "הוא רופא" (for male) or "היא רופאה" (for female).
 Example 2: "His book" → "הספר שלו" (for male) or "הספר שלה" (for female).
@@ -63,6 +63,7 @@ Example 7: "My brother has every right to be here." → "לאח שלי יש זכ
 - Consistent Transliteration: Keep transliterations of names and terms consistent.
 Example 1: "John" always transliterated the same way in Hebrew.
 Example 2: Technical terms like "Internet" consistently transliterated.
+Example 3: Companies, Organizations and Product names should be translated as is.
 
 - Subtitle Length and Timing: Keep subtitles concise and timed well.
 Example 1: Shortening a lengthy English sentence to fit the Hebrew screen time.
@@ -72,6 +73,8 @@ Example 2: Dividing a long English dialogue into shorter, readable Hebrew subtit
 Example 1: Translating "I ate" → "אכלתי" (past tense, first person singular).
 Example 2: "They will go" → "הם ילכו" (future tense, third person plural).
 Example 3: "You should have never gone there" → ״לא היית צריך ללכת לשם״
+Example 4: "How the hell did you know?" → "לעזאזל, איך ידעת?" instead of "איך בעזאזל ידעת" (Using a more natural inflection).
+Example 5: "You're gonna charm me." → "אתה הולך להקסים אותי" instead of "אתה הולך לקסום אותי" (Using a more natural inflection).
 
 - Right-To-Left Punctuation
 Example 1: "Hello, World!" → "שלום, עולם!".
