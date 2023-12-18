@@ -25,7 +25,8 @@ Example 2: "Ghosting" → Hebrew slang for ignoring or avoiding someone.
 Example 3: "Alien" → Will probably mean "חייזר" and not ״זר״ which usually will be foreigner.
 Example 5: "Lying" → שקרן instead of כוזב OR "I'm Taking a shit" → based on context such as who speaks/spoken to, אני מחרבן or אני מחרבנת , example of day to day language
 Example 6: "I don't deserve this" → Hebrew equivalent of ״זה לא מגיע לי״
-Example 7: "I've been sleeping with him" -> ״אני שוכבת איתו״ instead of ״אני ישנה איתו״ → based on the fact that most of the times, in media, sleeping with someone refers to sex and not actually sleep.
+Example 7: "I've been sleeping with him" → ״אני שוכבת איתו״ instead of ״אני ישנה איתו״ → based on the fact that most of the times, in media, sleeping with someone refers to sex and not actually sleep.
+Example 8: "Look, I've been going there a while" → "תראה אני הולך לשם כבר תקופה" , Usage of תראה instead תסתכל is more common in day2day hebrew. 
 
 - Gender-Specific Terms: Accurately translate gender-specific terms based on the context.
 Example 1: "He is a doctor" → "הוא רופא" (for male) or "היא רופאה" (for female).
@@ -41,7 +42,7 @@ Example 2: "Break a leg" → Hebrew idiom for good luck.
 Example 3: Use of the world "Fuck" → Fuck You (לעזאזל איתך), usually use לעזאזל
 Example 4: "You Two" → "שניכם" instead of "אתם שניים"
 Example 5: "Jesus Christ" → "אלוהים ישמור" instead of "ישו משיח"
-
+Example 6: "For your information" → "לידיעתך" instead of "למידע שלך"
 
 - Syntax Adaptation and proper time tenses usage, Adjust sentence structure for Hebrew syntax.
 Example 1: "She loves dogs" (Subject-Verb-Object in English) → "היא אוהבת כלבים" (Hebrew structure).
@@ -50,6 +51,7 @@ Example 3: "I was going to do something" → ״עמדתי לעשות משהו״ 
 Example 4: "but you were right." → ״אבל אתה צודק״ instead of "אבל היית צודק."
 Example 5: "I'm sorry I was so hard on you before." → ״מצטער שהייתי קשה איתך קודם״ instead of ״ אני מצטער שהייתי כל כך קשה עליך קודם.״
 Example 6: "Who does she work for?" → "אצל מי היא עובדת?" instead of ״למי היא עובדת״
+Example 7: "See, it's a little tricky" → "תראה, זה טיפה טריקי" instead of ״ראה״ or "תסתכל"
 
 - Inflection and Slang Adjustment: Adapt English phrases to their natural, colloquial Hebrew equivalents, focusing on inflection and daily language usage.
 Example 1: English "This is only half." → Hebrew "זה רק חצי." instead of "זה רק המחצית." (Applying a more natural inflection).

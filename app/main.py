@@ -4,6 +4,7 @@ import io
 import time
 import zipfile
 from collections import defaultdict
+from math import isnan
 
 import openai
 import pandas as pd
@@ -356,11 +357,12 @@ async def get_stats():
 
     q = TranslationFeedback.find_all()
     count, data = await asyncio.gather(q.count(), get_translations_df())
-
+    name_to_count = {}
     async for feedback in q:
         feedbacks.extend(feedback.marked_rows)
         sum_checked_rows += feedback.total_rows
         all_names.add(feedback.name)
+        name_to_count[feedback.name] = len(feedback.marked_rows)
         for row in feedback.marked_rows:
             key = 'V1 Error 1' if 'V1 Error 1' in row else 'Error 1'
             key2 = 'V2 Error 1' if 'V2 Error 1' in row else 'Error 2'
@@ -372,6 +374,9 @@ async def get_stats():
     for translation in data:
         if translation['name'] in all_names and translation['State'] == 'Done':
             translation['Reviewed'] = True
+            amount_errors = name_to_count[translation['name']]
+            translation['Amount Errors'] = int(amount_errors)
+            translation['Errors %'] = round(pct(amount_errors, translation['Amount Rows']), 1)
         else:
             translation['Reviewed'] = False
 
@@ -481,7 +486,14 @@ def view_stats():
     for i in data:
         i.pop('Delete', None)
 
-    st.table(pd.DataFrame(data))
+    df = pd.DataFrame(data)
+    df = df[['name', 'State', 'Took', 'Reviewed', 'Amount Rows', 'Amount Errors', 'Errors %',
+             'Amount OG Words', 'Amount Translated Words', 'Amount OG Characters',
+             'Amount Translated Characters', 'token_cost']]
+    df['Amount Errors'] = df['Amount Errors'].apply(lambda x: int(x) if not isnan(x) else x)
+    df = df.round(2)
+
+    st.dataframe(df, hide_index=True, use_container_width=True)
     st.divider()
 
     st.header('Samples')

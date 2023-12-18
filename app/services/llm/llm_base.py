@@ -28,9 +28,9 @@ client = openai.AsyncOpenAI(api_key=settings.OPENAI_KEY, timeout=Timeout(60 * 5)
 
 def report_stats(openai_resp: CompletionUsage):
     stats = openai_resp.model_dump()
-    logging.info('openai stats: %s', stats)
     val = copy.deepcopy(total_stats.get())
     val.update(stats)
+    logging.info('token cost updated stats: %s', val)
     total_stats.set(val)
 
 
