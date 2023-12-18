@@ -181,8 +181,9 @@ class SRTRowDict(TypedDict):
 
 class SRTBlock(Subtitle):
     index: int | str
-    start: timedelta
-    end: timedelta
+    # in case of XML spans, this could be None
+    start: timedelta | None
+    end: timedelta | None
     content: str
     speaker: int | None = None
     region: str | None = None

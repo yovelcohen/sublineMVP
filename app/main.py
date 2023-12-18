@@ -50,7 +50,7 @@ st.set_page_config(layout="wide")
 
 
 class TranslationFeedback(Document):
-    name: str
+    name: str = ''
     total_rows: int
     marked_rows: list[dict]
     duration: datetime.timedelta | None = None
@@ -177,29 +177,6 @@ def format_time(_time: datetime.timedelta):
     return str(_time.total_seconds() * 1000)
 
 
-def xml_to_rows(elements) -> list[SRTBlock]:
-    def parse_ttml_timestamp(timestamp_str):
-        if not timestamp_str:
-            return
-        milliseconds_str = timestamp_str.rstrip("t")
-        milliseconds = int(milliseconds_str)
-        return datetime.timedelta(milliseconds=milliseconds)
-
-    ids = [elem.attrib[key] for elem in elements for key in elem.attrib if key.endswith("id")]
-    blocks = [
-        SRTBlock(
-            content=elem.text.strip(),
-            index=pk,
-            style=elem.attrib.get("style"),
-            region=elem.attrib.get("region"),
-            start=parse_ttml_timestamp(elem.attrib.get("begin")),
-            end=parse_ttml_timestamp(elem.attrib.get("end")),
-        )
-        for pk, elem in zip(ids, elements)
-    ]
-    return blocks
-
-
 mock_translation = Translation(project_id=PydanticObjectId(), subtitles=[], target_language='null')
 
 
@@ -220,6 +197,12 @@ async def save_to_db(rows, df, name, last_row: SRTBlock, existing_feedback: Tran
             existing_feedback = TranslationFeedback(**params)
 
     await existing_feedback.save()
+    return existing_feedback
+
+
+async def get_feedback_by_name(name):
+    asyncio.run(init_db(settings, [TranslationFeedback]))
+    existing_feedback = asyncio.run(TranslationFeedback.find({'name': name}).first_or_none())
     return existing_feedback
 
 
@@ -250,9 +233,8 @@ def display_comparison_panel(name, subtitles, last_row: SRTBlock):
     for key in subtitles:
         subtitles[key] += [None] * (max_length - len(subtitles[key]))
 
+    existing_feedback = asyncio.run(get_feedback_by_name(name))
     df = pd.DataFrame(subtitles)
-    fb = TranslationFeedback.find(TranslationFeedback.name == name).first_or_none()
-    existing_feedback = asyncio.run(fb)
 
     def get_row_feedback(row, k=1):
         if k == 1:
@@ -415,13 +397,31 @@ async def get_translations_df() -> list[dict]:
         minutes, seconds = divmod(t, 60)
         return "{:02d}:{:02d}".format(int(minutes), int(seconds))
 
+    def get_cost(usage):
+        total_cost = 0
+        for key, cost in (('prompt_tokens', 0.03), ('completion_tokens', 0.06)):
+            if key in usage:
+                num = usage[key]
+                thousands, remainder = num // 1000, num % 1000
+                total_cost += num * thousands
+                total_cost += (remainder / 1000) * cost
+        return total_cost
+
     return [
-        {'name': proj.name, 'Amount Rows': len(proj.subtitles), 'State': states_map[proj.state.value],
-         'Took': get_took(proj.took), 'Delete': False,
+        {'name': proj.name,
+         'Amount Rows': len(proj.subtitles),
+         'State': states_map[proj.state.value],
+         'Took': get_took(proj.took),
+         'Delete': False,
          'Amount OG Characters': sum([len(r.content) for r in proj.subtitles]),
-         'Amount Translated Characters': sum([len(r.translations.content) for r in proj.subtitles]),
+         'Amount Translated Characters': sum(
+             [len(r.translations.content) for r in proj.subtitles if r.translations is not None]
+         ),
          'Amount OG Words': sum([len(r.content.split()) for r in proj.subtitles]),
-         'Amount Translated Words': sum([len(r.translations.content.split()) for r in proj.subtitles]),
+         'Amount Translated Words': sum(
+             [len(r.translations.content.split()) for r in proj.subtitles if r.translations is not None]
+         ),
+         'token_cost': get_cost(proj.tokens_cost)
          }
         for proj in projs
     ]
@@ -449,6 +449,9 @@ def view_stats():
     with col4:
         st.metric('Total Feedbacks Count', stats.totalFeedbacks)
         st.metric('Translated Words Count', stats.amountTranslatedWords)
+        prepositions_amount = stats.errorsCounter.get('Prepositions', 0)
+        prepositions_in_pct = pct(prepositions_amount, total_errors)
+        st.metric('Prepositions', prepositions_amount, f'{prepositions_in_pct}% of total errors', delta_color='off')
 
     def display_metrics(column, items):
         with column:
@@ -461,7 +464,6 @@ def view_stats():
         end_index = min(start_index + items_per_column, num_items)
         display_metrics(col, error_items[start_index:end_index])
         start_index = end_index
-
     st.divider()
     st.header('Items')
     for i in data:
