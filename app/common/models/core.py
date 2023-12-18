@@ -321,6 +321,15 @@ class Translation(BaseCreateUpdateDocument):
     def __repr__(self):
         return f'Translation for project {self.project_id} to {self.target_language}. \n State: {self.state.value}, Num Rows: {len(self.subtitles)}'
 
+    @model_validator(mode='before')
+    @classmethod
+    def validate_enum_fields(cls, data: dict):
+        for k in ['age', 'main_genre', 'additional_genres']:
+            if k in data and isinstance(data[k], str):
+                _cls = Ages if k == 'age' else Genres
+                data[k] = _cls(data[k])
+        return data
+
     @property
     def task_id(self):
         return self.id

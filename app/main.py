@@ -20,7 +20,7 @@ from pydantic import BaseModel, model_validator
 from streamlit.runtime.uploaded_file_manager import UploadedFile
 
 from common.consts import SrtString
-from common.models.core import Translation, SRTBlock, Ages, Genres
+from common.models.core import Translation, SRTBlock, Ages, Genres, TranslationStates
 from common.config import settings
 from common.db import init_db
 from services.runner import run_translation, XMLHandler, SRTHandler
@@ -302,7 +302,8 @@ def subtitles_viewer_from_db():
     existing_feedbacks = asyncio.run(TranslationFeedback.find_all().project(Projection).to_list())
     names = [d.name for d in existing_feedbacks]
     translation_names = asyncio.run(
-        Translation.find(Or(Translation.name != None, In(Translation.name, names))).project(Projection).to_list()
+        Translation.find(Or(Translation.name != None, In(Translation.name, names))).
+        find(Translation.state == TranslationStates.DONE.value).project(Projection).to_list()
     )
     name_to_id = {proj.name: proj.id for proj in translation_names}
     with st.form('forma'):
@@ -352,9 +353,11 @@ async def get_stats():
         all_names.add(feedback.name)
         for row in feedback.marked_rows:
             key = 'V1 Error 1' if 'V1 Error 1' in row else 'Error 1'
-            if row[key] not in ('None', None):
-                row['Name'] = feedback.name
-                by_error[row[key]].append(row)
+            key2 = 'V2 Error 1' if 'V2 Error 1' in row else 'Error 2'
+            for k in (key, key2):
+                if row[k] not in ('None', None):
+                    row['Name'] = feedback.name
+                    by_error[row[k]].append(row)
 
     data = await get_translations_df()
     for translation in data:
