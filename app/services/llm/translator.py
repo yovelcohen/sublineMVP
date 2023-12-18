@@ -25,7 +25,8 @@ Example 2: "Ghosting" → Hebrew slang for ignoring or avoiding someone.
 Example 3: "Alien" → Will probably mean "חייזר" and not ״זר״ which usually will be foreigner.
 Example 5: "Lying" → שקרן instead of כוזב OR "I'm Taking a shit" → based on context such as who speaks/spoken to, אני מחרבן or אני מחרבנת , example of day to day language
 Example 6: "I don't deserve this" → Hebrew equivalent of ״זה לא מגיע לי״
-
+Example 7: "I've been sleeping with him" -> ״אני שוכבת איתו״ instead of ״אני ישנה איתו״ → based on the fact that most of the times, in media, sleeping with someone refers to sex and not actually sleep.
+ 
 - Gender-Specific Terms: Accurately translate gender-specific terms based on the context.
 Example 1: "He is a doctor" → "הוא רופא" (for male) or "היא רופאה" (for female).
 Example 2: "His book" → "הספר שלו" (for male) or "הספר שלה" (for female).
@@ -41,6 +42,7 @@ Example 3: Use of the world "Fuck" → Fuck You (לעזאזל איתך), usually
 Example 4: "You Two" → "שניכם" instead of "אתם שניים"
 Example 5: "Jesus Christ" → "אלוהים ישמור" instead of "ישו משיח"
 
+
 - Syntax Adaptation and proper time tenses usage, Adjust sentence structure for Hebrew syntax.
 Example 1: "She loves dogs" (Subject-Verb-Object in English) → "היא אוהבת כלבים" (Hebrew structure).
 Example 2: "I am reading a book" → Adjusted to fit Hebrew verb-subject-object order.
@@ -49,9 +51,14 @@ Example 4: "but you were right." → ״אבל אתה צודק״ instead of "אב
 Example 5: "I'm sorry I was so hard on you before." → ״מצטער שהייתי קשה איתך קודם״ instead of ״ אני מצטער שהייתי כל כך קשה עליך קודם.״
 Example 6: "Who does she work for?" → "אצל מי היא עובדת?" instead of ״למי היא עובדת״
 
-- Root System Usage: Apply the Hebrew root system in translations_result.
-Example 1: English "write," "writer" → Hebrew roots for "write" (כתב) and related forms.
-Example 2: English "run," "runner" → Hebrew roots for "run" (רוץ) and related forms.
+- Inflection and Slang Adjustment: Adapt English phrases to their natural, colloquial Hebrew equivalents, focusing on inflection and daily language usage.
+Example 1: English "This is only half." → Hebrew "זה רק חצי." instead of "זה רק המחצית." (Applying a more natural inflection).
+Example 2: "which gave you everything you wanted" → "שנתנה לך כל מה שרצית" instead of "שנתנה לך הכל שרצית." (Adapting to a more colloquial expression).
+Example 3: "It's an honorary position." → "זה תפקיד כבוד" instead of "זו תפקיד כבודי." (Using a more commonly spoken phrase structure).
+Example 4: "I'm really tired." → "אני ממש עייף." or "אני גמור." instead of a direct translation like "אני מאוד עייף." (Adapting to a more natural, colloquial expression in Hebrew).
+Example 5: English "I'm starving." → Hebrew "אני מת מרעב." instead of a more literal translation like "אני רעב מאוד." (Using a colloquial expression that captures the intensity of hunger in everyday speech).
+Example 6: "Let's hang out." → "בוא נתלווה." or "בוא נבלה זמן יחד." instead of a direct translation like "בוא נהיה יחד." (Choosing a phrase that more accurately reflects the casual and friendly nature of the invitation in everyday Hebrew).
+Example 7: "My brother has every right to be here." → "לאח שלי יש זכות מלאה להיות כאן" instead of "לאח שלי יש לו הזכות להיות פה"
 
 - Consistent Transliteration: Keep transliterations of names and terms consistent.
 Example 1: "John" always transliterated the same way in Hebrew.
@@ -75,6 +82,7 @@ Example 1: "What size Cadillac do you take?" → Correct translation: "באיז�
 Example 2: "Suggesting that our customers have a..." → Correct translation: "לרמוז שללקוחות שלנו יש..." (Use "ל" correctly to indicate suggestion or implication).
 Example 3: "The teacher's book" → "הספר של המורה" (Correct use of "של" for showing possession).
 Example 4: "In the garden" → "בגן" (Correct use of "ב" for indicating a physical location).
+Example 5: "I'm gonna have to let you go." →
 """
 
 

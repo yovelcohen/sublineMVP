@@ -188,6 +188,11 @@ def parse_file(uploaded_file) -> list[str]:
 
 
 async def save_to_db(rows, df, name, last_row: SRTBlock, existing_feedback: TranslationFeedback | None = None):
+    def filter_row(row):
+        ke = 'V1 Error 1' if 'V1 Error 1' in row else 'Error 1'
+        return row[ke] not in ('None', None)
+
+    rows = [r for r in rows if filter_row(r)]
     if not existing_feedback:
         params = dict(marked_rows=rows, total_rows=len(df), name=name, duration=last_row.end)
         try:
@@ -195,7 +200,8 @@ async def save_to_db(rows, df, name, last_row: SRTBlock, existing_feedback: Tran
         except CollectionWasNotInitialized as e:
             await init_db(settings, [TranslationFeedback])
             existing_feedback = TranslationFeedback(**params)
-
+    else:
+        existing_feedback.marked_rows = rows
     await existing_feedback.save()
     return existing_feedback
 
@@ -244,6 +250,7 @@ def display_comparison_panel(name, subtitles, last_row: SRTBlock):
 
     TRANSLATION_KEY = 'Glix Translation 1'
     if existing_feedback:
+        logging.info(f'Found existing feedback, updating df, amount marked rows: {len(existing_feedback.marked_rows)}')
         text_to_feedback1 = {row[TRANSLATION_KEY]: get_row_feedback(row, 1) for row in
                              existing_feedback.marked_rows}
         text_to_feedback2 = {row[TRANSLATION_KEY]: get_row_feedback(row, 2) for row in
@@ -346,7 +353,11 @@ async def get_stats():
     by_error = defaultdict(list)
     all_names = set()
     await init_db(settings, [TranslationFeedback])
-    async for feedback in TranslationFeedback.find_all():
+
+    q = TranslationFeedback.find_all()
+    count, data = await asyncio.gather(q.count(), get_translations_df())
+
+    async for feedback in q:
         feedbacks.extend(feedback.marked_rows)
         sum_checked_rows += feedback.total_rows
         all_names.add(feedback.name)
@@ -358,7 +369,6 @@ async def get_stats():
                     row['Name'] = feedback.name
                     by_error[row[k]].append(row)
 
-    data = await get_translations_df()
     for translation in data:
         if translation['name'] in all_names and translation['State'] == 'Done':
             translation['Reviewed'] = True
@@ -367,7 +377,7 @@ async def get_stats():
 
     stats = Stats(
         totalChecked=sum_checked_rows,
-        totalFeedbacks=len(feedbacks),
+        totalFeedbacks=count,
         errorsCounter={key: len(val) for key, val in by_error.items()},
         errors=by_error,
         errorPct=round((len(feedbacks) / sum_checked_rows) * 100, 2),
@@ -449,7 +459,7 @@ def view_stats():
         st.metric('Error Percentage', f'{stats.errorPct}%')
         st.metric('Original Words Count', stats.amountOgWords)
     with col4:
-        st.metric('Total Feedbacks Count', stats.totalFeedbacks)
+        st.metric('Amount Feedbacks', stats.totalFeedbacks)
         st.metric('Translated Words Count', stats.amountTranslatedWords)
         prepositions_amount = stats.errorsCounter.get('Prepositions', 0)
         prepositions_in_pct = pct(prepositions_amount, total_errors)
