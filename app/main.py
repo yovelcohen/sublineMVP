@@ -200,10 +200,9 @@ async def save_to_db(rows, df, name, last_row: SRTBlock, existing_feedback: Tran
     return existing_feedback
 
 
-async def get_feedback_by_name(name):
-    asyncio.run(init_db(settings, [TranslationFeedback]))
-    existing_feedback = asyncio.run(TranslationFeedback.find({'name': name}).first_or_none())
-    return existing_feedback
+async def get_feedback_by_name(name) -> TranslationFeedback | None:
+    await init_db(settings, [TranslationFeedback])
+    return await TranslationFeedback.find({'name': name}).first_or_none()
 
 
 def display_comparison_panel(name, subtitles, last_row: SRTBlock):
