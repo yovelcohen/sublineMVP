@@ -316,7 +316,7 @@ def subtitles_viewer_from_db():
                 'Original Language': [row.content for row in rows],
                 'Glix Translation 1': [row.translations.content for row in rows if row.translations is not None],
             }
-            revs = [row.translations.revision for row in translation.subtitles]
+            revs = [row.translations.revision for row in translation.subtitles if row.translations is not None]
             if not all([r is None for r in revs]):
                 subtitles['Glix Translation 2'] = revs
 
