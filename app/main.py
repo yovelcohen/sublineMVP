@@ -355,7 +355,7 @@ async def get_stats():
             key = 'V1 Error 1' if 'V1 Error 1' in row else 'Error 1'
             key2 = 'V2 Error 1' if 'V2 Error 1' in row else 'Error 2'
             for k in (key, key2):
-                if row[k] not in ('None', None):
+                if k in row and row[k] not in ('None', None):
                     row['Name'] = feedback.name
                     by_error[row[k]].append(row)
 
