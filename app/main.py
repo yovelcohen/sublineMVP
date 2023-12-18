@@ -314,7 +314,7 @@ def subtitles_viewer_from_db():
             rows = sorted(list(translation.subtitles), key=lambda x: x.index)
             subtitles = {
                 'Original Language': [row.content for row in rows],
-                'Glix Translation 1': [row.translations.content for row in rows],
+                'Glix Translation 1': [row.translations.content for row in rows if row.translations is not None],
             }
             revs = [row.translations.revision for row in translation.subtitles]
             if not all([r is None for r in revs]):
