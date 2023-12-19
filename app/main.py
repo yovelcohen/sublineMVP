@@ -5,6 +5,7 @@ import time
 import zipfile
 from collections import defaultdict
 from math import isnan
+from random import shuffle
 
 import openai
 import pandas as pd
@@ -18,12 +19,12 @@ from beanie.exceptions import CollectionWasNotInitialized
 from beanie.odm.operators.find.comparison import In
 from beanie.odm.operators.find.logical import Or
 from pydantic import BaseModel, model_validator
-from streamlit.runtime.uploaded_file_manager import UploadedFile
 
 from common.consts import SrtString
 from common.models.core import Translation, SRTBlock, Ages, Genres, TranslationStates
 from common.config import settings
 from common.db import init_db
+from common.utils import rows_to_srt
 from services.runner import run_translation, XMLHandler, SRTHandler
 from services.constructor import SubtitlesResults, pct
 
@@ -75,7 +76,15 @@ def string_to_enum(value: str, enum_class):
     raise ValueError(f"{value} is not a valid value for {enum_class.__name__}")
 
 
-async def translate(_name, file: str, _target_language, main_genre, age: Ages, additional_genres: list[str] = None):
+async def translate(
+        _name: str,
+        file: str,
+        _target_language: str,
+        _format: str,
+        main_genre: str,
+        age: Ages,
+        additional_genres: list[str] = None
+):
     t1 = time.time()
     logger.debug('starting translation request')
     task = Translation(target_language=_target_language, source_language='English', subtitles=[],
@@ -86,7 +95,9 @@ async def translate(_name, file: str, _target_language, main_genre, age: Ages, a
 
     await task.save()
     try:
-        ret: SubtitlesResults = await run_translation(task=task, model='best', blob_content=file, raw_results=True)
+        ret: SubtitlesResults = await run_translation(
+            task=task, model='best', blob_content=file, raw_results=True, mime_type=_format
+        )
         st.session_state['name'] = ret
     except openai.APITimeoutError as e:
         st.error('Translation Failed Due To OpenAI API Timeout, Please Try Again Later')
@@ -134,7 +145,7 @@ def translate_form():
     if st.session_state.get('stage', 0) != 1:
         with st.form("Translate"):
             name = st.text_input("Name")
-            uploaded_file = st.file_uploader("Upload a file", type=["srt", "xml", 'nfs'])
+            uploaded_file = st.file_uploader("Upload a file", type=["srt", "xml", 'nfs', 'txt'])
             source_language = st.selectbox("Source Language", ["English", "Hebrew", 'French', 'Arabic', 'Spanish'])
             target_language = st.selectbox("Target Language", ["Hebrew", 'French', 'Arabic', 'Spanish'])
             age = st.selectbox('Age', options=list(AGES_MAP.keys()), index=4)
@@ -147,17 +158,25 @@ def translate_form():
             if submitted:
                 bar = st.progress(0, 'Parsing File...')
                 st.session_state['bar'] = bar
-                st.session_state['isSrt'] = bool(uploaded_file.name.endswith('srt'))
-                if st.session_state['isSrt']:
-                    st.session_state['stage'] = 1
-                    string_data = uploaded_file.getvalue()
-                else:
+                if uploaded_file.name.endswith('nfs') or uploaded_file.name.endswith('xml'):
+                    st.session_state['format'] = 'xml'
+                elif uploaded_file.name.endswith('srt'):
+                    st.session_state['format'] = 'srt'
+                elif uploaded_file.name.endswith('txt'):
+                    st.session_state['format'] = 'qtext'
+
+                if st.session_state['format'] == 'xml':
                     st.session_state['stage'] = 1
                     string_data = uploaded_file.getvalue().decode("utf-8")
+                else:
+                    st.session_state['stage'] = 1
+                    string_data = uploaded_file.getvalue()
+
                 asyncio.run(
                     translate(
                         _name=name, file=string_data, _target_language=target_language, age=AGES_MAP[age],
-                        main_genre=GENRES_MAP[genre1], additional_genres=[GENRES_MAP[g] for g in additionalGenres]
+                        main_genre=GENRES_MAP[genre1], additional_genres=[GENRES_MAP[g] for g in additionalGenres],
+                        _format=st.session_state['format']
                     )
                 )
 
@@ -167,11 +186,7 @@ def translate_form():
                 'Original Language': [row.content for row in results.rows],
                 'Glix Translation 1': [row.translations.content for row in results.rows],
             }
-            display_comparison_panel(name=name, subtitles=subtitles, last_row=results.rows[-1])
-            download_button(
-                name=name,
-                srt_string1=results.to_srt(revision=False, translated=True)
-            )
+            display_comparison_panel(name=name, subtitles=subtitles, rows=results.rows, target_lang=target_language)
 
 
 def format_time(_time: datetime.timedelta):
@@ -212,7 +227,8 @@ async def get_feedback_by_name(name) -> TranslationFeedback | None:
     return await TranslationFeedback.find({'name': name}).first_or_none()
 
 
-def display_comparison_panel(name, subtitles, last_row: SRTBlock):
+def display_comparison_panel(name, subtitles, rows: list[SRTBlock], target_lang):
+    last_row = rows[-1]
     labels = ['Gender Mistake', 'Time Tenses', 'Names', 'Slang', 'Prepositions',
               'Name "as is"', 'not fit in context', 'Plain Wrong Translation']
 
@@ -286,6 +302,7 @@ def display_comparison_panel(name, subtitles, last_row: SRTBlock):
 
     if st.button('Export Results'):
         blob = edited_df.to_csv(header=True)
+        download_button(name=name, srt_string1=rows_to_srt(rows=rows, translated=True, target_language=target_lang))
         st.download_button('Export', data=blob, file_name=f'{name}.csv', type='primary', on_click=clean)
 
 
@@ -308,11 +325,11 @@ def subtitles_viewer_from_db():
 
     existing_feedbacks = asyncio.run(TranslationFeedback.find_all().project(Projection).to_list())
     names = [d.name for d in existing_feedbacks]
-    translation_names = asyncio.run(
+    translations = asyncio.run(
         Translation.find(Or(Translation.name != None, In(Translation.name, names))).
         find(Translation.state == TranslationStates.DONE.value).project(Projection).to_list()
     )
-    name_to_id = {proj.name: proj.id for proj in translation_names}
+    name_to_id = {proj.name: proj.id for proj in translations}
     with st.form('forma'):
         chosen_name = st.selectbox('Choose Translation', options=list(name_to_id.keys()))
         submit = st.form_submit_button('Get')
@@ -320,6 +337,8 @@ def subtitles_viewer_from_db():
             chosen_id = name_to_id[chosen_name]
             translation = asyncio.run(Translation.get(chosen_id))
             rows = sorted(list(translation.subtitles), key=lambda x: x.index)
+            st.session_state['subtitles'] = rows
+            st.session_state['targetLang'] = translation.target_language
             subtitles = {
                 'Original Language': [row.content for row in rows],
                 'Glix Translation 1': [row.translations.content for row in rows if row.translations is not None],
@@ -333,7 +352,8 @@ def subtitles_viewer_from_db():
 
     if 'subtitles' in st.session_state:
         display_comparison_panel(
-            name=chosen_name, subtitles=st.session_state['subtitles'], last_row=st.session_state['lastRow']
+            name=chosen_name, subtitles=st.session_state['subtitles'],
+            rows=st.session_state['subtitles'], target_lang=st.session_state['targetLang']
         )
 
 
@@ -347,6 +367,7 @@ class Stats(BaseModel):
     totalTranslatedCharacters: int
     amountOgWords: int
     amountTranslatedWords: int
+    translations: list[dict]
 
 
 async def get_stats():
@@ -390,8 +411,9 @@ async def get_stats():
         totalTranslatedCharacters=sum([row['Amount Translated Characters'] for row in data]),
         amountOgWords=sum([row['Amount OG Words'] for row in data]),
         amountTranslatedWords=sum([row['Amount Translated Words'] for row in data]),
+        translations=data
     )
-    return data, stats
+    return stats
 
 
 states_map = {
@@ -444,9 +466,29 @@ async def get_translations_df() -> list[dict]:
     ]
 
 
+def format_number(num):
+    """
+    Formats a given integer into a string with specific rules.
+    - Numbers between 10,000 and 1,000,000 are displayed as <num>k.
+    - Numbers above 1,000,000 are displayed as <num>m or <num>b for millions and billions respectively.
+    """
+    if 10000 <= num < 1000000:
+        # For numbers in thousands, format with one decimal place
+        return f"{num / 1000:.1f}k"
+    elif 1000000 <= num < 1000000000:
+        # For numbers in millions, format with two decimal places
+        return f"{num / 1000000:.2f}m"
+    elif num >= 1000000000:
+        # For numbers in billions, format with two decimal places
+        return f"{num / 1000000000:.2f}b"
+    else:
+        # If the number doesn't fit any category, return it as it is
+        return str(num)
+
+
 def view_stats():
-    data, stats = asyncio.run(get_stats())
-    samples = {key: val[:5] for key, val in stats.errors.items()}
+    stats = asyncio.run(get_stats())
+    samples = {key: pd.DataFrame(val) for key, val in stats.errors.items()}
     total_errors = sum(list(stats.errorsCounter.values()))
 
     col1, col2, col3, col4 = st.columns(4)
@@ -455,34 +497,37 @@ def view_stats():
     items_per_column = (num_items + 2) // 4  # +2 for rounding up when dividing by 3
 
     with col1:
-        st.metric('Total Checked Rows', stats.totalChecked)
-        st.metric('Original Characters Count', stats.totalOgCharacters)
+        st.metric('Total Checked Rows', format_number(stats.totalChecked))
+        st.metric('Original Characters Count', format_number(stats.totalOgCharacters))
     with col2:
-        st.metric('Total Errors Count', total_errors)
-        st.metric('Translated Characters Count', stats.totalTranslatedCharacters)
+        st.metric('Total Errors Count', format_number(total_errors))
+        st.metric('Translated Characters Count', format_number(stats.totalTranslatedCharacters))
     with col3:
         st.metric('Error Percentage', f'{stats.errorPct}%')
-        st.metric('Original Words Count', stats.amountOgWords)
+        st.metric('Original Words Count', format_number(stats.amountOgWords))
     with col4:
-        st.metric('Amount Feedbacks', stats.totalFeedbacks)
-        st.metric('Translated Words Count', stats.amountTranslatedWords)
+        st.metric('Amount Feedbacks', format_number(stats.totalFeedbacks))
+        st.metric('Translated Words Count', format_number(stats.amountTranslatedWords))
         prepositions_amount = stats.errorsCounter.get('Prepositions', 0)
         prepositions_in_pct = pct(prepositions_amount, total_errors)
-        st.metric('Prepositions', prepositions_amount, f'{prepositions_in_pct}% of total errors', delta_color='off')
+        st.metric('Prepositions', format_number(prepositions_amount), f'{prepositions_in_pct}% of total errors',
+                  delta_color='off')
 
     def display_metrics(column, items):
         with column:
             for key, amount in items:
                 in_pct = pct(amount, total_errors)
-                st.metric(key, amount, f'{in_pct}% of total errors', delta_color='off')
+                st.metric(key, format_number(amount), f'{in_pct}% of total errors', delta_color='off')
 
     start_index = 0
     for col in [col1, col2, col3]:
         end_index = min(start_index + items_per_column, num_items)
         display_metrics(col, error_items[start_index:end_index])
         start_index = end_index
+
     st.divider()
     st.header('Items')
+    data = stats.translations
     for i in data:
         i.pop('Delete', None)
 
@@ -498,8 +543,8 @@ def view_stats():
 
     st.header('Samples')
     for k, v in samples.items():
-        st.subheader(k)
-        st.table(pd.DataFrame(v))
+        with st.expander(k, expanded=False):
+            st.dataframe(v, use_container_width=True)
         st.divider()
 
 
@@ -524,7 +569,7 @@ def manage_existing():
 
 page_names_to_funcs = {
     "Translate": translate_form,
-    'Viewer From DB': subtitles_viewer_from_db,
+    'Subtitles Viewer': subtitles_viewer_from_db,
     'Engine Stats': view_stats,
     'Manage Existing Translations': manage_existing
 }

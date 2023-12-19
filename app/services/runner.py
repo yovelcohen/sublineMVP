@@ -1,6 +1,7 @@
 import asyncio
 import json
 import logging
+import re
 from datetime import timedelta
 from typing import Literal
 
@@ -18,7 +19,7 @@ from common.db import init_db
 
 
 class BaseHandler:
-    __slots__ = '_results', 'raw_content', 'translation_obj'
+    __slots__ = '_results', 'raw_content', 'translation_obj', '_config'
 
     def __init__(self, *, raw_content: str | bytes | SrtString | XMLString, translation_obj: Translation):
         if isinstance(raw_content, bytes):
@@ -26,6 +27,14 @@ class BaseHandler:
         self.raw_content = raw_content
         self.translation_obj = translation_obj
         self._results: SubtitlesResults | None = None
+        self._config = self._extract_config()
+
+    def _extract_config(self):
+        return
+
+    @property
+    def config(self):
+        return self._config
 
     def to_rows(self) -> list[SRTBlock]:
         raise NotImplementedError
@@ -39,7 +48,6 @@ class BaseHandler:
 
     async def run(
             self, *,
-            revise: bool = False,
             smart_audit: bool = False,
             raw_results: bool = False,
             model: Literal['good', 'best'] = 'good'
@@ -52,17 +60,6 @@ class BaseHandler:
             self._results = await translator(
                 num_rows_in_chunk=75, start_progress_val=30, middle_progress_val=45, end_progress_val=60
             )
-            if revise:
-                logging.info("Running Revisor app")
-                await self._set_state(state=TranslationStates.IN_REVISION)
-                revisor = TranslationRevisor(
-                    translation_obj=self._results.translation_obj, rows=self._results.rows, model=model
-                )
-                self._results = await revisor(
-                    num_rows_in_chunk=35, start_progress_val=65, middle_progress_val=75, end_progress_val=85
-                )
-                logging.info('finished running revisor')
-                await self._set_state(state=TranslationStates.DONE)
 
             if smart_audit:
                 try:
@@ -86,6 +83,51 @@ class BaseHandler:
     @property
     def results_holder(self):
         return self._results
+
+
+class QTtextHandler(BaseHandler):
+    def _extract_config(self):
+        config_pattern = r"\{.*?\}"
+        config_lines = re.findall(config_pattern, self.raw_content)
+        config = ' '.join(config_lines)
+        config_dict = dict(re.findall(r"{(.*?):(.*?)}", config))
+        return config_dict
+
+    def to_rows(self) -> list[SRTBlock]:
+        subtitle_pattern = r"\[\d{2}:\d{2}:\d{2}\.\d{2}\].*?\n.*?\n\[\d{2}:\d{2}:\d{2}\.\d{2}\]\n?"
+        subtitles = re.findall(subtitle_pattern, self.raw_content, re.DOTALL)
+        srt_blocks = []
+
+        def parse_time(time_str):
+            hours, minutes, seconds = map(float, time_str.split(':'))
+            return timedelta(hours=hours, minutes=minutes, seconds=seconds)
+
+        for index, block in enumerate(subtitles, start=1):
+            start_time, content, end_time = [s for s in re.split(r"\n|\[|\]", block.strip()) if s not in ('', '\n', '\r')]
+            start_td, end_td = parse_time(start_time), parse_time(end_time)
+            srt_block = SRTBlock(index=index, start=start_td, end=end_td, content=content)
+            srt_blocks.append(srt_block)
+
+        return srt_blocks
+
+    def parse_output(self, output: SubtitlesResults, *args, **kwargs):
+        def format_time(td):
+            total_seconds = int(td.total_seconds())
+            hours = total_seconds // 3600
+            minutes = (total_seconds % 3600) // 60
+            seconds = total_seconds % 60
+            milliseconds = td.microseconds // 10000
+            return f"{hours:02}:{minutes:02}:{seconds:02}.{milliseconds:02}"
+
+        config_str = ' '.join([f"{{{k}:{v}}}" for k, v in self.config.items()])
+
+        subtitles_str = ""
+        for block in output.rows:
+            start_str = format_time(block.start)
+            end_str = format_time(block.end)
+            subtitles_str += f"[{start_str}]\n{block.content}\n[{end_str}]\n\n"
+
+        return config_str + "\n" + subtitles_str
 
 
 class XMLHandler(BaseHandler):
@@ -163,41 +205,45 @@ async def run_translation(
         task: Translation,
         model,
         blob_content,
+        mime_type: str = None,
         raw_results: bool = False
 ) -> SubtitlesResults | SrtString | JsonStr | XMLString:
     """
 
     :param task: a translation DB obj, associated with this run
-    :param model: the GPT to use
     :param blob_content: raw string of the subtitles file
-    :param revision: if True, will run a revision round on the results
+    :param mime_type: if not provided, will try to detect the mime type
+    :param model: the GPT to use
     :param raw_results: if True, outputs the raw results of the file
 
     :returns SubtitlesResults if raw_results is True,
              otherwise returns a string of translated subtitles in the uploaded format.
     """
-    mime_type = magic.Magic()
-    detected_mime_type = mime_type.from_buffer(blob_content)
-    detected_mime_type = detected_mime_type.lower()
+    if not mime_type:
+        mime_type = magic.Magic()
+        detected_mime_type = mime_type.from_buffer(blob_content)
+        detected_mime_type = detected_mime_type.lower()
+    else:
+        detected_mime_type = mime_type.lower()
     st.session_state['bar'].progress(5, 'File Successfully Parsed')
     if 'xml' in detected_mime_type:
-        handler = XMLHandler(raw_content=blob_content, translation_obj=task)
+        handler = XMLHandler
     elif 'json' in detected_mime_type:
-        handler = JSONHandler(raw_content=blob_content, translation_obj=task)
-    elif 'text' in detected_mime_type:
-        handler = SRTHandler(raw_content=blob_content, translation_obj=task)
+        handler = JSONHandler
+    elif 'srt' in detected_mime_type:
+        handler = SRTHandler
+    elif 'qtext' in detected_mime_type:
+        handler = QTtextHandler
     else:
         raise ValueError(f"Unsupported file type: {detected_mime_type}")
-    revise = True if model == 'good' else False
-    results = await handler.run(revise=revise, model=model, raw_results=raw_results)
-    return results
+    return await handler(raw_content=blob_content, translation_obj=task).run(model=model, raw_results=raw_results)
 
 
 async def main(blob, revision=True):
     await init_db(settings, [Translation])
     task = Translation(target_language='Hebrew', source_language='English', subtitles=[], project_id=PydanticObjectId())
     await task.save()
-    return await run_translation(task=task, model='good', blob_content=blob, revision=revision, raw_results=True)
+    return await run_translation(task=task, model='good', blob_content=blob, raw_results=True)
 
 
 def logging_setup():

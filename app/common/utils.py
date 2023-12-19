@@ -22,7 +22,6 @@ def _correct_punctuation_alignment(subtitles: str | SrtString):
 def rows_to_srt(
         *,
         rows: list['SRTBlock'],
-        user_revision: bool = False,
         translated: bool = True,
         reindex=True,
         start_index=1,
@@ -33,18 +32,6 @@ def rows_to_srt(
     r"""
     Convert an iterator of :py:class:`Subtitle` objects to a string of joined
     SRT blocks.
-
-    .. doctest::
-
-        >>> from datetime import timedelta
-        >>> start = timedelta(seconds=1)
-        >>> end = timedelta(seconds=2)
-        >>> subs = [
-        ...     SRTBlock(index=1, start=start, end=end, content='x'),
-        ...     SRTBlock(index=2, start=start, end=end, content='y'),
-        ... ]
-        >>> compose(subs)  # doctest: +ELLIPSIS
-        '1\n00:00:01,000 --> 00:00:02,000\nx\n\n2\n00:00:01,000 --> ...'
 
     :param rows: list of SRTBlocks to construct the SRT from
     :param user_revision: if True, will use the revised translation
@@ -58,8 +45,7 @@ def rows_to_srt(
               :py:class:`Subtitle` represented as an SRT block
     """
     subtitles = sort_and_reindex(subtitles=rows, start_index=start_index, in_place=True) if reindex else rows
-    ret = "".join(subtitle.to_srt(strict=strict, eol=eol, revision=user_revision, translated=translated) for subtitle in
-                  subtitles)
+    ret = "".join(subtitle.to_srt(strict=strict, eol=eol, translated=translated) for subtitle in subtitles)
     if target_language in ('Hebrew', 'heb', 'he'):
         ret = _correct_punctuation_alignment(ret)
     return cast(SrtString, ret)

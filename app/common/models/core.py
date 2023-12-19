@@ -179,11 +179,15 @@ class SRTRowDict(TypedDict):
     speaker: int | None
 
 
-class SRTBlock(Subtitle):
-    index: int | str
-    # in case of XML spans, this could be None
-    start: timedelta | None
-    end: timedelta | None
+class SRTBlock(BaseModel):
+    index: str | int
+    start: timedelta
+    end: timedelta
+    content: str
+    proprietary: str = ''
+
+    start: timedelta
+    end: timedelta
     content: str
     speaker: int | None = None
     region: str | None = None

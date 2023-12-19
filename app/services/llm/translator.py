@@ -26,7 +26,8 @@ Example 3: "Alien" → Will probably mean "חייזר" and not ״זר״ which us
 Example 5: "Lying" → שקרן instead of כוזב OR "I'm Taking a shit" → based on context such as who speaks/spoken to, אני מחרבן or אני מחרבנת , example of day to day language
 Example 6: "I don't deserve this" → Hebrew equivalent of ״זה לא מגיע לי״
 Example 7: "I've been sleeping with him" → ״אני שוכבת איתו״ instead of ״אני ישנה איתו״ → based on the fact that most of the times, in media, sleeping with someone refers to sex and not actually sleep.
-Example 8: "Look, I've been going there a while" → "תראה אני הולך לשם כבר תקופה" , Usage of תראה instead תסתכל is more common in day2day hebrew. 
+Example 8: "Look, I've been going there a while" → "תראה אני הולך לשם כבר תקופה" → Usage of תראה instead תסתכל is more common in day2day hebrew. 
+Example 9: "He was like, "I bought a fancy cat," → "הוא אמר, קניתי מכונית מפוארת" instead of "הוא היה כמו, קניתי מכונית מפוארת," → Usage of "Like" in modern english slang should be sort of ignored.  
 
 - Gender-Specific Terms: Accurately translate gender-specific terms based on the context.
 Example 1: "He is a doctor" → "הוא רופא" (for male) or "היא רופאה" (for female).
@@ -87,7 +88,7 @@ Example 1: "What size Cadillac do you take?" → Correct translation: "באיז�
 Example 2: "Suggesting that our customers have a..." → Correct translation: "לרמוז שללקוחות שלנו יש..." (Use "ל" correctly to indicate suggestion or implication).
 Example 3: "The teacher's book" → "הספר של המורה" (Correct use of "של" for showing possession).
 Example 4: "In the garden" → "בגן" (Correct use of "ב" for indicating a physical location).
-Example 5: "I'm gonna have to let you go." →
+Example 5: "They were grateful" → "הם הודו" instead of "הם היו מודים" (Using a more natural inflection). 
 """
 
 
