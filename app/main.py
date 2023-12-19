@@ -5,7 +5,6 @@ import time
 import zipfile
 from collections import defaultdict
 from math import isnan
-from random import shuffle
 
 import openai
 import pandas as pd
@@ -25,7 +24,7 @@ from common.models.core import Translation, SRTBlock, Ages, Genres, TranslationS
 from common.config import settings
 from common.db import init_db
 from common.utils import rows_to_srt
-from services.runner import run_translation, XMLHandler, SRTHandler
+from services.runner import run_translation
 from services.constructor import SubtitlesResults, pct
 
 streamlit.logger.get_logger = logging.getLogger
@@ -189,18 +188,7 @@ def translate_form():
             display_comparison_panel(name=name, subtitles=subtitles, rows=results.rows, target_lang=target_language)
 
 
-def format_time(_time: datetime.timedelta):
-    return str(_time.total_seconds() * 1000)
-
-
 mock_translation = Translation(project_id=PydanticObjectId(), subtitles=[], target_language='null')
-
-
-def parse_file(uploaded_file) -> list[str]:
-    handler = SRTHandler if uploaded_file.name.endswith('srt') else XMLHandler
-    st.session_state['stage'] = 1
-    handler = handler(raw_content=uploaded_file.getvalue().decode("utf-8"), translation_obj=mock_translation)
-    return [row.content for row in handler.to_rows()]
 
 
 async def save_to_db(rows, df, name, last_row: SRTBlock, existing_feedback: TranslationFeedback | None = None):
@@ -228,6 +216,7 @@ async def get_feedback_by_name(name) -> TranslationFeedback | None:
 
 
 def display_comparison_panel(name, subtitles, rows: list[SRTBlock], target_lang):
+    rows = list(rows)
     last_row = rows[-1]
     labels = ['Gender Mistake', 'Time Tenses', 'Names', 'Slang', 'Prepositions',
               'Name "as is"', 'not fit in context', 'Plain Wrong Translation']
@@ -287,7 +276,7 @@ def display_comparison_panel(name, subtitles, rows: list[SRTBlock], target_lang)
         for row in edited_df.to_dict(orient='records'):
             for col in select_cols:
                 if row[col] not in ('None', None):
-                    if row_to_update := map_.get(row[TRANSLATION_KEY]):  # update
+                    if row_to_update := map_.get(row[TRANSLATION_KEY]):
                         row_to_update[col] = row[col]
                         marked_rows.append(row_to_update)
                     else:
@@ -326,7 +315,7 @@ def subtitles_viewer_from_db():
     existing_feedbacks = asyncio.run(TranslationFeedback.find_all().project(Projection).to_list())
     names = [d.name for d in existing_feedbacks]
     translations = asyncio.run(
-        Translation.find(Or(Translation.name != None, In(Translation.name, names))).
+        Translation.find(Or(Translation.name != None, In(Translation.name, names))).  # noqa
         find(Translation.state == TranslationStates.DONE.value).project(Projection).to_list()
     )
     name_to_id = {proj.name: proj.id for proj in translations}
@@ -337,7 +326,7 @@ def subtitles_viewer_from_db():
             chosen_id = name_to_id[chosen_name]
             translation = asyncio.run(Translation.get(chosen_id))
             rows = sorted(list(translation.subtitles), key=lambda x: x.index)
-            st.session_state['subtitles'] = rows
+            st.session_state['rows'] = rows
             st.session_state['targetLang'] = translation.target_language
             subtitles = {
                 'Original Language': [row.content for row in rows],
@@ -353,7 +342,7 @@ def subtitles_viewer_from_db():
     if 'subtitles' in st.session_state:
         display_comparison_panel(
             name=chosen_name, subtitles=st.session_state['subtitles'],
-            rows=st.session_state['subtitles'], target_lang=st.session_state['targetLang']
+            rows=st.session_state['rows'], target_lang=st.session_state['targetLang']
         )
 
 
@@ -466,23 +455,17 @@ async def get_translations_df() -> list[dict]:
     ]
 
 
+TEN_K, MILLION, BILLION = 10_000, 1_000_000, 1_000_000_000
+
+
 def format_number(num):
-    """
-    Formats a given integer into a string with specific rules.
-    - Numbers between 10,000 and 1,000,000 are displayed as <num>k.
-    - Numbers above 1,000,000 are displayed as <num>m or <num>b for millions and billions respectively.
-    """
-    if 10000 <= num < 1000000:
-        # For numbers in thousands, format with one decimal place
+    if TEN_K <= num < MILLION:
         return f"{num / 1000:.1f}k"
-    elif 1000000 <= num < 1000000000:
-        # For numbers in millions, format with two decimal places
-        return f"{num / 1000000:.2f}m"
-    elif num >= 1000000000:
-        # For numbers in billions, format with two decimal places
-        return f"{num / 1000000000:.2f}b"
+    elif MILLION <= num < BILLION:
+        return f"{num / MILLION:.2f}m"
+    elif num >= BILLION:
+        return f"{num / BILLION:.2f}b"
     else:
-        # If the number doesn't fit any category, return it as it is
         return str(num)
 
 

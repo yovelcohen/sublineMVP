@@ -189,8 +189,8 @@ class SRTHandler(BaseHandler):
             for row in srt.parse(self.raw_content)
         ]
 
-    def parse_output(self, output: SubtitlesResults, use_revision: bool) -> SrtString:  # noqa
-        return output.to_srt(revision=use_revision)
+    def parse_output(self, output: SubtitlesResults) -> SrtString:  # noqa
+        return output.to_srt()
 
 
 class JSONHandler(BaseHandler):
@@ -239,28 +239,28 @@ async def run_translation(
     return await handler(raw_content=blob_content, translation_obj=task).run(model=model, raw_results=raw_results)
 
 
-async def main(blob, revision=True):
-    await init_db(settings, [Translation])
-    task = Translation(target_language='Hebrew', source_language='English', subtitles=[], project_id=PydanticObjectId())
-    await task.save()
-    return await run_translation(task=task, model='good', blob_content=blob, raw_results=True)
-
-
-def logging_setup():
-    logging.basicConfig(
-        level=logging.DEBUG,
-        format="%(levelname)s %(asctime)s %(name)s:%(message)s",
-        force=True,
-    )  # Change these settings for your own purpose, but keep force=True at least.
-    logging.getLogger('httpcore').setLevel(logging.INFO)
-    logging.getLogger('openai').setLevel(logging.INFO)
-
-
-if __name__ == '__main__':
-    logging_setup()
-    with open(
-            '/Users/yovel.c/PycharmProjects/services/sublineStreamlit/srts/theOffice0409/original_english.srt', 'r'
-    ) as f:
-        data = f.read()
-    ret = asyncio.run(main(blob=data))
-    print(ret)
+# async def main(blob):
+#     await init_db(settings, [Translation])
+#     task = Translation(target_language='Hebrew', source_language='English', subtitles=[], project_id=PydanticObjectId())
+#     await task.save()
+#     return await run_translation(task=task, model='good', blob_content=blob, raw_results=True)
+#
+#
+# def logging_setup():
+#     logging.basicConfig(
+#         level=logging.DEBUG,
+#         format="%(levelname)s %(asctime)s %(name)s:%(message)s",
+#         force=True,
+#     )  # Change these settings for your own purpose, but keep force=True at least.
+#     logging.getLogger('httpcore').setLevel(logging.INFO)
+#     logging.getLogger('openai').setLevel(logging.INFO)
+#
+#
+# if __name__ == '__main__':
+#     logging_setup()
+#     with open(
+#             '/Users/yovel.c/PycharmProjects/services/sublineStreamlit/srts/theOffice0409/original_english.srt', 'r'
+#     ) as f:
+#         data = f.read()
+#     ret = asyncio.run(main(blob=data))
+#     print(ret)
