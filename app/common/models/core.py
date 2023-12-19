@@ -148,6 +148,9 @@ class Subtitle(BaseModel):
     def __lt__(self, other):
         return (self.start, self.end, self.index) < (other.start, other.end, other.index)
 
+    def __gt__(self, other):
+        return (self.start, self.end, self.index) > (other.start, other.end, other.index)
+
     def __repr__(self):
         return f'SRT Block No. {self.index}\nContent: {self.content}'
 
@@ -180,7 +183,6 @@ class SRTRowDict(TypedDict):
 
 
 class SRTBlock(Subtitle):
-
     speaker: int | None = None
     region: str | None = None
     style: str | None = None
