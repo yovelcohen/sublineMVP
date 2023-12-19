@@ -179,16 +179,8 @@ class SRTRowDict(TypedDict):
     speaker: int | None
 
 
-class SRTBlock(BaseModel):
-    index: str | int
-    start: timedelta
-    end: timedelta
-    content: str
-    proprietary: str = ''
+class SRTBlock(Subtitle):
 
-    start: timedelta
-    end: timedelta
-    content: str
     speaker: int | None = None
     region: str | None = None
     style: str | None = None
