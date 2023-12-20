@@ -1,9 +1,12 @@
+import asyncio
 import json
 import logging
 import time
 
+import httpx
 import json_repair
 from openai.types import CompletionUsage
+import streamlit as st
 
 from common.models.core import SRTBlock
 from services.llm.llm_base import send_request, encoder, report_stats
@@ -16,6 +19,7 @@ def language_rules():
     return """You are a proficient TV shows English to Hebrew Translator,
 Make sure you follow the following the Rules and output a valid JSON, no matter what! 
 You will be paid handsomely for every corrected/improved translation you provide.
+You will be punished for every output that is not a valid JSON OR is missing translations.
 
 Rules:
 - Modern Slang Translation: Translate English slang into appropriate Hebrew slang and day to day language.
@@ -138,8 +142,8 @@ async def validate_and_parse_answer(json_str: str, *, preferred_suffix='}'):
         except Exception as e:
             raise e
     except Exception as e:
-        logging.debug('failed to load JSON in code, using LLM to fix')
         fixed_json = await fix_json(json_str=json_str)
+        logging.debug('failed to load JSON in code, using LLM to fix')
 
     if isinstance(fixed_json, (list, set, tuple)):
         return fixed_json, -1
@@ -202,7 +206,8 @@ async def make_openai_request(
     return answer, last_idx
 
 
-async def translate_via_openai_func(*, rows: list['SRTBlock'], target_language: str) -> dict[str, str]:
+async def translate_via_openai_func(*, rows: list['SRTBlock'], target_language: str, recursion_count: int = 1) -> dict[
+    str, str]:
     """
     :param rows: list of srt rows to translate
     :param target_language: translation's target language
@@ -214,7 +219,22 @@ async def translate_via_openai_func(*, rows: list['SRTBlock'], target_language: 
     if not rows:
         return {}
     messages = get_openai_messages(rows=rows, target_language=target_language)
-    answer, last_idx = await make_openai_request(messages=messages, seed=_SEED, temperature=.1)
+    try:
+        answer, last_idx = await make_openai_request(messages=messages, seed=_SEED, temperature=.1)
+    except httpx.ReadError as e:
+        if recursion_count == 3:
+            msg = 'failed to fill stream buffer due to timeout 3 times, request canceled'
+            logging.info(msg)
+            st.error('GPT read response operation timed out 3 times, please try again later.')
+            raise e
+        sleep = 5 * recursion_count
+        msg = f'failed to fill stream buffer due to timeout, request canceled, sleeping {sleep} seconds'
+        logging.info(msg)
+        st.toast(msg)
+        await asyncio.sleep(sleep)
+        return await translate_via_openai_func(rows=rows, target_language=target_language,
+                                               recursion_count=recursion_count + 1)
+
     t2 = time.time()
     logging.info(
         'finished translating via openai',

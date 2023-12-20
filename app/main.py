@@ -417,7 +417,8 @@ def translate_form():
             results: SubtitlesResults = st.session_state['name']
             subtitles = {
                 'Original Language': [row.content for row in results.rows],
-                'Glix Translation 1': [row.translations.content for row in results.rows],
+                'Glix Translation 1': [row.translations.content for row in results.rows if
+                                       row.translations is not None],
             }
             _display_comparison_panel(name=name, subtitles=subtitles, rows=results.rows, target_lang=target_language)
 
@@ -444,7 +445,7 @@ def recover_form():
         results: SubtitlesResults = st.session_state['name']
         subtitles = {
             'Original Language': [row.content for row in results.rows],
-            'Glix Translation 1': [row.translations.content for row in results.rows],
+            'Glix Translation 1': [row.translations.content for row in results.rows if row.translations is not None],
         }
         _display_comparison_panel(name=results.translation_obj.name,
                                   subtitles=subtitles, rows=results.rows,

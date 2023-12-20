@@ -57,16 +57,14 @@ class BaseHandler:
             await self.translation_obj.save()
             translator = TranslatorV1(translation_obj=self.translation_obj)
             st.session_state['bar'].progress(15, 'Starting Translation')
-            self._results = await translator(
-                num_rows_in_chunk=75, start_progress_val=30, middle_progress_val=45, end_progress_val=60
-            )
+            self._results = await translator(num_rows_in_chunk=25)
 
             if smart_audit:
                 try:
                     logging.info("Running Auditor app")
                     await self._set_state(state=TranslationStates.SMART_AUDIT)
                     auditor = TranslationAuditor(translation_obj=self._results.translation_obj, rows=self._results.rows)
-                    self._results = await auditor(start_progress_val=87, middle_progress_val=93, end_progress_val=98)
+                    self._results = await auditor()
                     logging.info('finished running auditor')
                 except Exception as e:
                     st.warning(f"Failed to run smart audit, skipping")
