@@ -17,6 +17,7 @@ from common.context_vars import total_stats
 from services.llm.auditor import audit_results_via_openai
 from services.llm.translator import translate_via_openai_func
 from services.llm.revisor import review_revisions_via_openai
+from streamlit_utils import stqdm
 
 logger = logging.getLogger(__name__)
 
@@ -85,9 +86,8 @@ class SubtitlesResults:
     def _conditional_iter_rows(cls, rows, is_revision, negate=False):
         for row in rows:
             translated = row.is_translated(is_revision=is_revision)
-            if negate:
-                if not translated:
-                    yield row
+            if negate and not translated:
+                yield row
             else:
                 if translated:
                     yield row
@@ -103,26 +103,18 @@ class SubtitlesResults:
 
 class BaseLLMTranslator:
     __slots__ = (
-        'rows', 'make_function_translation', 'failed_rows', 'sema', 'model', 'translation_obj', 'is_revision',
-        'iterations'
+        'rows', 'make_function_translation', 'failed_rows', 'sema', 'translation_obj', 'iterations'
     )
 
-    def __init__(
-            self, *,
-            translation_obj: Translation,
-            rows: list[SRTBlock] = None,
-            model: Literal['best', 'good'] = 'best',
-            is_revision: bool = False
-    ):
+    def __init__(self, translation_obj: Translation, *, rows: list[SRTBlock] = None):
         if not rows and not translation_obj.subtitles:
             raise ValueError('either rows or translation_obj.subtitles must be provided')
 
         self.translation_obj = translation_obj
-        self.rows = rows or translation_obj.subtitles
+        rows = rows or translation_obj.subtitles
+        self.rows = sorted(list(rows), key=lambda row: row.index)
         self.failed_rows: dict[str, list[SRTBlock]] = dict()
         self.sema = asyncio.BoundedSemaphore(12)
-        self.model = model
-        self.is_revision = is_revision
         self.iterations = 0
 
     @property
@@ -206,7 +198,7 @@ class TranslatorV1(BaseLLMTranslator):
         """
         Hook that receives the chunk to work on and calls the proper translation function
         """
-        return await translate_via_openai_func(rows=chunk, target_language=self.target_language, model=self.model)
+        return await translate_via_openai_func(rows=chunk, target_language=self.target_language)
 
     async def _run_one_chunk(self, *, chunk: list[SRTBlock], chunk_id: int = None) -> NoReturn:
         self_name = self.class_name()
@@ -216,7 +208,7 @@ class TranslatorV1(BaseLLMTranslator):
                 answer = await self._run_translation_hook(chunk=chunk)
                 await self._update_translations(translations=answer, chunk=chunk)
                 progress = pct(
-                    len(list(SubtitlesResults.rows_with_translations(rows=chunk, is_revision=self.is_revision))),
+                    len(list(SubtitlesResults.rows_with_translations(rows=chunk))),
                     len(self.rows)
                 )
                 logging.debug(f'Finished chunk number {chunk_id} via openai')
@@ -234,7 +226,7 @@ class TranslatorV1(BaseLLMTranslator):
         text_chunks = self._divide_rows(rows=rows, num_rows_in_chunk=num_rows_in_chunk)
         logging.debug('amount of chunks: %s', len(text_chunks))
         tasks = [self._run_one_chunk(chunk=chunk, chunk_id=i) for i, chunk in enumerate(text_chunks, start=1)]
-        await asyncio.gather(*tasks)
+        await stqdm.gather(*tasks, total=len(tasks))
         self.iterations += len(tasks)
 
     async def _translate_missing(
@@ -247,7 +239,7 @@ class TranslatorV1(BaseLLMTranslator):
         fill the missing translations result recursively
         """
         missing = list(
-            translation_holder.rows_missing_translations(is_revision=self.is_revision, rows=translation_holder.rows)
+            translation_holder.rows_missing_translations(rows=translation_holder.rows)
         )
         if len(missing) == 0:
             return
@@ -258,13 +250,9 @@ class TranslatorV1(BaseLLMTranslator):
             len(missing)
         )
         if recursion_count > 3:
-            if not self.is_revision:
-                # TODO: Handle this case, But for now, allow second translation to be missing,
-                #       The Issue stems from the Revisor Prompt and model output format.
-                logging.warning('failed to translate missing rows, recursion count exceeded')
-                st.warning('failed to translate missing rows, recursion exceeded, stopping')
-                raise RuntimeError('failed to translate missing rows, recursion exceeded')
-            return
+            logging.warning('failed to translate missing rows, recursion count exceeded')
+            st.warning('failed to translate missing rows, recursion exceeded, stopping')
+            raise RuntimeError('failed to translate missing rows, recursion exceeded')
 
         await self._run_and_update(
             rows=missing,

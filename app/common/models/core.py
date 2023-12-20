@@ -146,10 +146,10 @@ class Subtitle(BaseModel):
         return self.index == other.index and self.content == other.content
 
     def __lt__(self, other):
-        return (self.start, self.end, self.index) < (other.start, other.end, other.index)
+        return (self.start, self.end) < (other.start, other.end) and self.index < other.index
 
     def __gt__(self, other):
-        return (self.start, self.end, self.index) > (other.start, other.end, other.index)
+        return (self.start, self.end) > (other.start, other.end) and self.index > other.index
 
     def __repr__(self):
         return f'SRT Block No. {self.index}\nContent: {self.content}'
@@ -182,7 +182,13 @@ class SRTRowDict(TypedDict):
     speaker: int | None
 
 
-class SRTBlock(Subtitle):
+class SRTBlock(BaseModel):
+    index: str | int
+    start: timedelta
+    end: timedelta
+    content: str
+    proprietary: str = ''
+
     speaker: int | None = None
     region: str | None = None
     style: str | None = None
@@ -192,10 +198,17 @@ class SRTBlock(Subtitle):
     def __hash__(self):
         return hash(str(self.index) + str(self.content))
 
-    def is_translated(self, is_revision: bool = False):
-        if not is_revision:
-            return self.translations is not None and self.translations.content
-        return self.translations is not None and self.translations.revision
+    def __eq__(self, other):
+        return self.index == other.index and self.content == other.content
+
+    def __lt__(self, other):
+        return (self.start, self.end) < (other.start, other.end) and self.index < other.index
+
+    def __gt__(self, other):
+        return (self.start, self.end) > (other.start, other.end) and self.index > other.index
+
+    def __repr__(self):
+        return f'SRT Block No. {self.index}\nContent: {self.content}'
 
     @model_validator(mode='before')
     @classmethod
@@ -205,6 +218,11 @@ class SRTBlock(Subtitle):
             index = int(index.split('subtitle')[-1].strip())
         data['index'] = int(index)
         return data
+
+    def is_translated(self, is_revision: bool = False):
+        if not is_revision:
+            return self.translations is not None and self.translations.content
+        return self.translations is not None and self.translations.revision
 
     def to_dict(self) -> SRTRowDict:
         return SRTRowDict(index=self.index, speaker=self.speaker, start=timedelta_to_srt_timestamp(self.start),
@@ -254,7 +272,6 @@ class SRTBlock(Subtitle):
 class TranslationStates(str, Enum):
     PENDING = 'p'
     IN_PROGRESS = 'ip'
-    IN_REVISION = 'ir'
     SMART_AUDIT = 'sa'
     DONE = 'd'
     FAILED = 'f'

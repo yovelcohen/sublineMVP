@@ -24,6 +24,12 @@ class TokenCountTooHigh(ValueError):
 
 MODELS = {'good': 'gpt-3.5-turbo-1106', 'best': 'gpt-4-1106-preview'}
 client = openai.AsyncOpenAI(api_key=settings.OPENAI_KEY, timeout=Timeout(60 * 5))
+azure_client = openai.AsyncAzureOpenAI(
+    api_key=settings.OPENAI_KEY,
+    api_version="2023-12-01-preview",
+    azure_endpoint=settings.AZURE_OPENAI_ENDPOINT,
+    azure_deployment='glix',
+)
 
 
 def report_stats(openai_resp: CompletionUsage):
@@ -37,9 +43,7 @@ def report_stats(openai_resp: CompletionUsage):
 async def send_request(
         messages, seed, model, max_tokens=None, top_p=None, temperature=None, num_options=None, retry_count=1, **kwargs
 ) -> list[Choice] | ChatCompletion | AsyncStream[ChatCompletionChunk]:
-    if model in ('best', 'good'):
-        model = MODELS[model]
-    req = dict(messages=messages, seed=seed, model=model)
+    req = dict(messages=messages, seed=seed, model='glix')
     if 'tools' not in kwargs:
         req['response_format'] = {"type": "json_object"}
     if top_p:
@@ -54,7 +58,7 @@ async def send_request(
         req.update(kwargs)
     try:
         t1 = time.time()
-        func_resp = await client.chat.completions.create(**req)
+        func_resp = await azure_client.chat.completions.create(**req)
         t2 = time.time()
         logging.info('finished openai request, took %s seconds', t2 - t1)
         # report_stats(func_resp)
@@ -63,9 +67,8 @@ async def send_request(
         logging.exception('openai timeout error, sleeping for 5 seconds and retrying')
         if not st.session_state.get('openAIErrorMsg'):
             st.session_state['openAIErrorMsg'] = True
-            st.warning('OpenAI is taking too long to respond, please wait...')
-
-        await asyncio.sleep(7)
+            st.toast('OpenAI is taking too long to respond, please wait...')
+        await asyncio.sleep(5)
         if retry_count == 3:
             logging.exception('openai timeout error, failed after 3 retries')
             raise e

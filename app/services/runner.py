@@ -9,13 +9,10 @@ import magic
 import srt
 from xml.etree import ElementTree as ET
 import streamlit as st
-from beanie import PydanticObjectId
 
 from common.consts import SrtString, XMLString, JsonStr
 from common.models.core import Translation, SRTBlock, TranslationStates
-from services.constructor import TranslatorV1, SubtitlesResults, TranslationRevisor, TranslationAuditor
-from common.config import settings
-from common.db import init_db
+from services.constructor import TranslatorV1, SubtitlesResults, TranslationAuditor
 
 
 class BaseHandler:
@@ -46,16 +43,19 @@ class BaseHandler:
         self.translation_obj.state = state
         await self.translation_obj.save()
 
-    async def run(
-            self, *,
-            smart_audit: bool = False,
-            raw_results: bool = False,
-            model: Literal['good', 'best'] = 'good'
-    ):
+    async def run(self, *, smart_audit: bool = False, raw_results: bool = False, recovery_mode: bool = False):
         try:
             await self._set_state(state=TranslationStates.IN_PROGRESS)
-
-            translator = TranslatorV1(translation_obj=self.translation_obj, rows=self.to_rows(), model=model)
+            if recovery_mode:
+                self._results = SubtitlesResults(translation_obj=self.translation_obj)
+                rows = list(self._results.rows_missing_translations(self.translation_obj.subtitles))
+                logging.info(f"Running in recovery mode, found {len(rows)} rows to translate")
+                st.toast(f'Running in recovery mode, found {len(rows)} rows to translate')
+            else:
+                rows = self.to_rows()
+            self.translation_obj.subtitles = set(rows)
+            await self.translation_obj.save()
+            translator = TranslatorV1(translation_obj=self.translation_obj)
             st.session_state['bar'].progress(15, 'Starting Translation')
             self._results = await translator(
                 num_rows_in_chunk=75, start_progress_val=30, middle_progress_val=45, end_progress_val=60
@@ -103,7 +103,8 @@ class QTtextHandler(BaseHandler):
             return timedelta(hours=hours, minutes=minutes, seconds=seconds)
 
         for index, block in enumerate(subtitles, start=1):
-            start_time, content, end_time = [s for s in re.split(r"\n|\[|\]", block.strip()) if s not in ('', '\n', '\r')]
+            start_time, content, end_time = [s for s in re.split(r"\n|\[|\]", block.strip()) if
+                                             s not in ('', '\n', '\r')]
             start_td, end_td = parse_time(start_time), parse_time(end_time)
             srt_block = SRTBlock(index=index, start=start_td, end=end_td, content=content)
             srt_blocks.append(srt_block)
@@ -203,7 +204,6 @@ class JSONHandler(BaseHandler):
 
 async def run_translation(
         task: Translation,
-        model,
         blob_content,
         mime_type: str = None,
         raw_results: bool = False
@@ -213,7 +213,6 @@ async def run_translation(
     :param task: a translation DB obj, associated with this run
     :param blob_content: raw string of the subtitles file
     :param mime_type: if not provided, will try to detect the mime type
-    :param model: the GPT to use
     :param raw_results: if True, outputs the raw results of the file
 
     :returns SubtitlesResults if raw_results is True,
@@ -236,8 +235,7 @@ async def run_translation(
         handler = QTtextHandler
     else:
         raise ValueError(f"Unsupported file type: {detected_mime_type}")
-    return await handler(raw_content=blob_content, translation_obj=task).run(model=model, raw_results=raw_results)
-
+    return await handler(raw_content=blob_content, translation_obj=task).run(raw_results=raw_results)
 
 # async def main(blob):
 #     await init_db(settings, [Translation])

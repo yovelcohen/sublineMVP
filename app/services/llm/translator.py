@@ -1,11 +1,9 @@
 import json
 import logging
 import time
-from typing import Literal
 
 import json_repair
 from openai.types import CompletionUsage
-from openai.types.edit import Choice
 
 from common.models.core import SRTBlock
 from services.llm.llm_base import send_request, encoder, report_stats
@@ -159,7 +157,7 @@ def validate_and_parse_answer(json_str: str, *, preferred_suffix='}'):
 async def make_openai_request(
         messages: list[dict[str, str]],
         seed: int = 99,
-        model: str = 'best',
+        model: str = 'gpt-4-1106-preview',
         temperature: float | None = .1,
         top_p: float | None = None,
         max_tokens: int | None = None,
@@ -195,20 +193,13 @@ async def make_openai_request(
     )
     report_stats(usage)
 
-    logging.debug(f'openai request finished, token cost: {usage.model_dump()}')
+    logging.debug(f'openai request finished')
     answer, last_idx = validate_and_parse_answer(json_str, preferred_suffix=preferred_suffix)
     return answer, last_idx
 
 
-async def translate_via_openai_func(
-        *,
-        rows: list['SRTBlock'],
-        target_language: str,
-        model: Literal['best', 'good'] = 'best',
-        **kwargs
-) -> dict[str, str]:
+async def translate_via_openai_func(*, rows: list['SRTBlock'], target_language: str) -> dict[str, str]:
     """
-    :param model: GPT Model to use
     :param rows: list of srt rows to translate
     :param target_language: translation's target language
 
@@ -219,7 +210,7 @@ async def translate_via_openai_func(
     if not rows:
         return {}
     messages = get_openai_messages(rows=rows, target_language=target_language)
-    answer, last_idx = await make_openai_request(messages=messages, seed=_SEED, model=model, temperature=.1)
+    answer, last_idx = await make_openai_request(messages=messages, seed=_SEED, temperature=.1)
     t2 = time.time()
     logging.info(
         'finished translating via openai',
