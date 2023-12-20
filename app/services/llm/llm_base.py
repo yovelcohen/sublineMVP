@@ -24,7 +24,7 @@ class TokenCountTooHigh(ValueError):
 
 
 MODELS = {'good': 'gpt-3.5-turbo-1106', 'best': 'gpt-4-1106-preview'}
-openai_client = openai.AsyncOpenAI(api_key=settings.OPENAI_KEY, timeout=Timeout(60 * 5))
+openai_client = openai.AsyncOpenAI(api_key=settings.OPENAI_KEY, timeout=Timeout(60 * 10))
 azure_client = openai.AsyncAzureOpenAI(
     api_key=settings.OPENAI_KEY,
     api_version="2023-12-01-preview",
@@ -51,7 +51,7 @@ async def send_request(
     else:
         model = 'glix'
         client = azure_client
-    req = dict(messages=messages, seed=seed, model=model)
+    req = dict(messages=messages, seed=seed, model=model, max_tokens=max_tokens)
     if 'tools' not in kwargs:
         req['response_format'] = {"type": "json_object"}
     if top_p:
@@ -60,8 +60,6 @@ async def send_request(
         req['temperature'] = temperature
     if num_options:
         req['n'] = num_options
-    if max_tokens:
-        req['max_tokens'] = max_tokens
     if kwargs:
         req.update(kwargs)
 

@@ -2,7 +2,7 @@ import asyncio
 import logging
 import re
 from collections import defaultdict
-from typing import cast, Literal, NoReturn
+from typing import cast, NoReturn
 from xml.etree import ElementTree as ET  # noqa
 
 import streamlit as st
@@ -83,13 +83,13 @@ class SubtitlesResults:
         raise NotImplementedError
 
     @classmethod
-    def rows_missing_translations(cls, rows, is_revision=False):
+    def rows_missing_translations(cls, rows):
         for row in rows:
             if row.translations is None:
                 yield row
 
     @classmethod
-    def rows_with_translations(cls, rows, is_revision=False):
+    def rows_with_translations(cls, rows):
         for row in rows:
             if row.translations is not None and row.translations.content is not None:
                 yield row
@@ -108,12 +108,8 @@ class BaseLLMTranslator:
         rows = rows or translation_obj.subtitles
         self.rows = sorted(list(rows), key=lambda row: row.index)
         self.failed_rows: dict[str, list[SRTBlock]] = dict()
-        self.sema = asyncio.BoundedSemaphore(10)
+        self.sema = asyncio.BoundedSemaphore(8)
         self.iterations = 0
-
-    @property
-    def name(self):
-        return self.translation_obj.project_id
 
     @classmethod
     def class_name(cls):
@@ -296,13 +292,12 @@ class TranslationRevisor(TranslatorV1):
             self, *,
             translation_obj: Translation,
             rows: list[SRTBlock] = None,
-            model: Literal['best', 'good'] = 'best'
     ):
-        super().__init__(translation_obj=translation_obj, rows=rows, model=model, is_revision=True)
+        super().__init__(translation_obj=translation_obj, rows=rows)
         self.unmatched = defaultdict(list)
 
     async def _run_translation_hook(self, chunk):
-        return await review_revisions_via_openai(rows=chunk, target_language=self.target_language, model=self.model)
+        return await review_revisions_via_openai(rows=chunk, target_language=self.target_language)
 
     def _add_translation_to_rows(self, *, rows: list[SRTBlock], results: dict[str, str]):
         """
