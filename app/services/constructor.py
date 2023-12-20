@@ -83,22 +83,16 @@ class SubtitlesResults:
         raise NotImplementedError
 
     @classmethod
-    def _conditional_iter_rows(cls, rows, is_revision, negate=False):
-        for row in rows:
-            translated = row.is_translated(is_revision=is_revision)
-            if negate and not translated:
-                yield row
-            else:
-                if translated:
-                    yield row
-
-    @classmethod
     def rows_missing_translations(cls, rows, is_revision=False):
-        return cls._conditional_iter_rows(rows=rows, is_revision=is_revision, negate=True)
+        for row in rows:
+            if row.translations is None:
+                yield row
 
     @classmethod
     def rows_with_translations(cls, rows, is_revision=False):
-        return cls._conditional_iter_rows(rows=rows, is_revision=is_revision, negate=False)
+        for row in rows:
+            if row.translations is not None and row.translations.content is not None:
+                yield row
 
 
 class BaseLLMTranslator:
@@ -114,7 +108,7 @@ class BaseLLMTranslator:
         rows = rows or translation_obj.subtitles
         self.rows = sorted(list(rows), key=lambda row: row.index)
         self.failed_rows: dict[str, list[SRTBlock]] = dict()
-        self.sema = asyncio.BoundedSemaphore(12)
+        self.sema = asyncio.BoundedSemaphore(10)
         self.iterations = 0
 
     @property

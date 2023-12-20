@@ -3,6 +3,7 @@ import copy
 import logging
 import time
 
+import json_repair
 import openai
 import tiktoken
 from httpx import Timeout
@@ -23,7 +24,7 @@ class TokenCountTooHigh(ValueError):
 
 
 MODELS = {'good': 'gpt-3.5-turbo-1106', 'best': 'gpt-4-1106-preview'}
-client = openai.AsyncOpenAI(api_key=settings.OPENAI_KEY, timeout=Timeout(60 * 5))
+openai_client = openai.AsyncOpenAI(api_key=settings.OPENAI_KEY, timeout=Timeout(60 * 5))
 azure_client = openai.AsyncAzureOpenAI(
     api_key=settings.OPENAI_KEY,
     api_version="2023-12-01-preview",
@@ -41,9 +42,16 @@ def report_stats(openai_resp: CompletionUsage):
 
 
 async def send_request(
-        messages, seed, model, max_tokens=None, top_p=None, temperature=None, num_options=None, retry_count=1, **kwargs
+        messages, seed, model=None, max_tokens=None, top_p=None, temperature=None, num_options=None, retry_count=1,
+        **kwargs
 ) -> list[Choice] | ChatCompletion | AsyncStream[ChatCompletionChunk]:
-    req = dict(messages=messages, seed=seed, model='glix')
+    if model == 'gpt-3.5':
+        model = 'gpt-3.5-turbo-1106'
+        client = openai_client
+    else:
+        model = 'glix'
+        client = azure_client
+    req = dict(messages=messages, seed=seed, model=model)
     if 'tools' not in kwargs:
         req['response_format'] = {"type": "json_object"}
     if top_p:
@@ -56,9 +64,10 @@ async def send_request(
         req['max_tokens'] = max_tokens
     if kwargs:
         req.update(kwargs)
+
     try:
         t1 = time.time()
-        func_resp = await azure_client.chat.completions.create(**req)
+        func_resp = await client.chat.completions.create(**req)
         t2 = time.time()
         logging.info('finished openai request, took %s seconds', t2 - t1)
         # report_stats(func_resp)
@@ -78,3 +87,14 @@ async def send_request(
             del st.session_state['openAIErrorMsg']
         return await send_request(messages=messages, seed=seed, model=model, temperature=temperature, top_p=top_p,
                                   retry_count=retry_count + 1, num_options=num_options, max_tokens=max_tokens)
+
+
+JSON_FIXER_SEED = 189
+
+
+async def fix_json_request(json_str: str):
+    msg = [{'role': 'system',
+            'content': "You are the JSON Fixer, your job is to receive a broken JSON and return a fixed version of it. the JSON can be invalid because of a character in the middle of the JSON. RETURN ONLY THE OUTPUT FIXED JSON, MAKE SURE IT'S IN VALID JSON STRUCTURE."},
+           {'role': "user", 'content': json_str}]
+    resp = await send_request(messages=msg, seed=JSON_FIXER_SEED, model='gpt-3.5', temperature=.1)
+    return json_repair.loads(resp.choices[0].message.content)

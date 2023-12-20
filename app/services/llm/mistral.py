@@ -1,39 +1,33 @@
-# import json
-#
-# from mistralai.client import MistralClient
-# from mistralai.models.chat_completion import ChatMessage
-#
-# api_key = 'UHSKXOyzblj7hjwh2BczNEmbZjbzyghm'
-# model = "mistral-medium"
-#
-# client = MistralClient(api_key=api_key)
-#
-#
-# def translate_mixtral(sentences: list[str]):
-#     messages = [
-#         ChatMessage(role="system",
-#                     content="You are a TV subtitles translator from English To Hebrew. Your job is to translate given subtitles with Best quality inflection, time tenses, using context to understand proper gender terms and so on.."),
-#         ChatMessage(role="user",
-#                     content=f"Translate the following sentences to English, Return a valid JSON OBJECT Mapping from sentence index to it's translation.\nSentences: {json.dumps({i: s for i, s in enumerate(sentences, start=1)})}")
-#     ]
-#     _SEED = 189
-#     # No streaming
-#     chat_response = client.chat(
-#         model=model,
-#         messages=messages,
-#         max_tokens=4096,
-#         random_seed=_SEED,
-#         temperature=0.4
-#     )
-#     return chat_response
-#
-#
-# if __name__ == '__main__':
-#     s = [
-#         "Because I clean it so well.",
-#         "clean the candles, turn the lights on to the right setting,",
-#         "You have a big day tomorrow.",
-#         '''Has anyone ever come up to you and said, "You're not creative.'''
-#     ]
-#     d = translate_mixtral(s)
-#     print(d)
+import logging
+import time
+
+import json_repair
+from mistralai.async_client import MistralAsyncClient
+from mistralai.models.chat_completion import ChatMessage
+
+api_key = 'UHSKXOyzblj7hjwh2BczNEmbZjbzyghm'
+model = "mistral-medium"
+
+client = MistralAsyncClient(api_key=api_key)
+
+_SEED = 523
+
+
+async def fix_json(json_str: str) -> dict | list:
+    messages = [ChatMessage(role='system',
+                            content="You are the JSON Fixer, your job is to receive a broken JSON and return a fixed version of it. the JSON can be invalid because of a character in the middle of the JSON. RETURN ONLY THE OUTPUT FIXED JSON, MAKE SURE IT'S IN VALID JSON STRUCTURE."),
+                ChatMessage(role="user", content=json_str)]
+    t1 = time.time()
+    chat_response = client.chat_stream(
+        model=model,
+        messages=messages,
+        max_tokens=4096,
+        random_seed=_SEED,
+        temperature=0.1
+    )
+    ret = json_repair.loads(
+        ''.join([i.choices[0].delta.content async for i in chat_response if i.choices[0].delta.content])
+    )
+    t2 = time.time()
+    logging.info(f'Fixed JSON in {t2 - t1} seconds')
+    return ret

@@ -7,6 +7,7 @@ from openai.types import CompletionUsage
 
 from common.models.core import SRTBlock
 from services.llm.llm_base import send_request, encoder, report_stats
+from services.llm.mistral import fix_json
 
 _SEED = 99
 
@@ -99,42 +100,46 @@ def get_openai_messages(*, target_language, rows):
     return messages
 
 
-def validate_and_parse_answer(json_str: str, *, preferred_suffix='}'):
+async def validate_and_parse_answer(json_str: str, *, preferred_suffix='}'):
     """
     validate the answer from openai and return the parsed answer
     """
     pop_last = False
     try:
-        fixed_json = json_repair.loads(json_str)
-    except ValueError as e:
         try:
-            json_str = json_str.rsplit(',', 1)[0] + preferred_suffix
-            json_str = json_repair.loads(json_str)
-        except ValueError:
-            pass
-        if isinstance(json_str, dict):
-            fixed_json = json_str
-        else:
-            if not json_str.endswith(preferred_suffix):
-                last_char = json_str[-1]
-                if last_char.isalnum():
-                    json_str += '"}'
-                elif last_char == ',':
-                    json_str = json_str[:-1] + preferred_suffix
-                elif json_str.endswith('"'):
-                    json_str += preferred_suffix
+            fixed_json = json_repair.loads(json_str)
+        except ValueError as e:
+            try:
+                json_str = json_str.rsplit(',', 1)[0] + preferred_suffix
+                json_str = json_repair.loads(json_str)
+            except ValueError:
+                pass
+            if isinstance(json_str, dict):
+                fixed_json = json_str
+            else:
+                if not json_str.endswith(preferred_suffix):
+                    last_char = json_str[-1]
+                    if last_char.isalnum():
+                        json_str += '"}'
+                    elif last_char == ',':
+                        json_str = json_str[:-1] + preferred_suffix
+                    elif json_str.endswith('"'):
+                        json_str += preferred_suffix
+                    else:
+                        raise e
+                    try:
+                        fixed_json = json_repair.loads(json_str)
+                        pop_last = True
+                    except ValueError as e:
+                        logging.exception('failed to parse answer from openai, fixed to_json manually')
+                        raise e
                 else:
                     raise e
-                try:
-                    fixed_json = json_repair.loads(json_str)
-                    pop_last = True
-                except ValueError as e:
-                    logging.exception('failed to parse answer from openai, fixed to_json manually')
-                    raise e
-            else:
-                raise e
+        except Exception as e:
+            raise e
     except Exception as e:
-        raise e
+        logging.debug('failed to load JSON in code, using LLM to fix')
+        fixed_json = await fix_json(json_str=json_str)
 
     if isinstance(fixed_json, (list, set, tuple)):
         return fixed_json, -1
@@ -193,8 +198,7 @@ async def make_openai_request(
     )
     report_stats(usage)
 
-    logging.debug(f'openai request finished')
-    answer, last_idx = validate_and_parse_answer(json_str, preferred_suffix=preferred_suffix)
+    answer, last_idx = await validate_and_parse_answer(json_str, preferred_suffix=preferred_suffix)
     return answer, last_idx
 
 
