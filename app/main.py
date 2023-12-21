@@ -141,7 +141,8 @@ async def translate(
     await task.save()
     try:
         with st.status('Translating...'):
-            ret: SubtitlesResults = await run_translation(task=task, blob_content=file, raw_results=True, mime_type=_format)
+            ret: SubtitlesResults = await run_translation(task=task, blob_content=file, raw_results=True,
+                                                          mime_type=_format)
             st.session_state['name'] = ret
     except openai.APITimeoutError as e:
         st.error('Translation Failed Due To OpenAI API Timeout, Please Try Again Later')
@@ -463,26 +464,42 @@ def subtitles_viewer_from_db():
         Translation.find(Or(Translation.name != None, In(Translation.name, names))).  # noqa
         find(Translation.state == TranslationStates.DONE.value).project(Projection).to_list()
     )
-    name_to_id = {proj.name: proj.id for proj in translations}
+    existing, new = dict(), dict()
+    for proj in translations:
+        if proj.name in names:
+            existing[proj.name] = proj.id
+        else:
+            new[proj.name] = proj.id
+    _all = {**existing, **new}
+
+    def accept_form():
+        chosen_id = _all[chosen_name]
+        translation = asyncio.run(Translation.get(chosen_id))
+        rows = sorted(list(translation.subtitles), key=lambda x: x.index)
+        st.session_state['rows'] = rows
+        st.session_state['targetLang'] = translation.target_language
+        subtitles = {
+            'Original Language': [row.content for row in rows],
+            'Glix Translation 1': [row.translations.content for row in rows if row.translations is not None],
+        }
+        revs = [row.translations.revision for row in translation.subtitles if row.translations is not None]
+        if not all([r is None for r in revs]):
+            subtitles['Glix Translation 2'] = revs
+
+        st.session_state['subtitles'] = subtitles
+        st.session_state['lastRow'] = rows[-1]
+
     with st.form('forma'):
-        chosen_name = st.selectbox('Choose Translation', options=list(name_to_id.keys()))
+        chosen_name = st.selectbox('Choose Translation', options=list(new.keys()))
         submit = st.form_submit_button('Get')
         if submit:
-            chosen_id = name_to_id[chosen_name]
-            translation = asyncio.run(Translation.get(chosen_id))
-            rows = sorted(list(translation.subtitles), key=lambda x: x.index)
-            st.session_state['rows'] = rows
-            st.session_state['targetLang'] = translation.target_language
-            subtitles = {
-                'Original Language': [row.content for row in rows],
-                'Glix Translation 1': [row.translations.content for row in rows if row.translations is not None],
-            }
-            revs = [row.translations.revision for row in translation.subtitles if row.translations is not None]
-            if not all([r is None for r in revs]):
-                subtitles['Glix Translation 2'] = revs
+            accept_form()
 
-            st.session_state['subtitles'] = subtitles
-            st.session_state['lastRow'] = rows[-1]
+    with st.form('forma2'):
+        chosen_name = st.selectbox('Update Existing Review', options=list(existing.keys()))
+        submit = st.form_submit_button('Get')
+        if submit:
+            accept_form()
 
     if 'subtitles' in st.session_state:
         _display_comparison_panel(
