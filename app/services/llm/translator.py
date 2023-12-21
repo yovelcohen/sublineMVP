@@ -214,7 +214,7 @@ async def translate_via_openai_func(
         answer, last_idx = await make_openai_request(messages=messages, seed=_SEED, temperature=.1)
     except httpx.ReadError as e:
         logging.exception('failed to translate with backup request, sleeping and retrying')
-        if recursion_count == 3:
+        if recursion_count == 2:
             try:
                 return await backup_request(rows=rows, target_language=target_language)
             except Exception as e:
@@ -338,7 +338,7 @@ async def backup_request(target_language, rows) -> dict[str, str]:
     sys = f'Follow these rules when translating: {function_rules()}'
     user_msg = f'Translate the each row of this subtitles to {target_language}, And return the translated rows by their corresponding index. \nRows:\n {json.dumps({row.index: row.content for row in rows})}'
     answer = await send_request(messages=[{'role': 'system', 'content': sys}, {'role': 'user', 'content': user_msg}],
-                                seed=_BACKUP_SEED, temperature=.15, functions=func, model=Model.GPT4B)
+                                seed=_BACKUP_SEED, temperature=.1, functions=func, model=Model.GPT4B)
     ret = answer.choices[0].message.function_call.arguments
     logging.info('finished backup request with openai func', extra={'took': time.time() - t1})
     return {str(row['index']): row['translation'] for row in json_repair.loads(ret)['rows']}

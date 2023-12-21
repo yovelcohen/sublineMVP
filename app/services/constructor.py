@@ -132,7 +132,6 @@ class TranslatorV1(BaseLLMTranslator):
         """
         Class entry point, runs the translation process
         """
-        cls_name = self.class_name()
         await self._run_and_update(num_rows_in_chunk=num_rows_in_chunk, rows=self.rows)
         logging.debug('finished translating main chunks, handling failed rows')
 
@@ -145,11 +144,11 @@ class TranslatorV1(BaseLLMTranslator):
 
     def _add_translation_to_rows(
             self, *, rows: list[SRTBlock], results: dict[str, str]
-    ) -> tuple[set[SRTBlock], list[SRTBlock]]:
+    ) -> list[SRTBlock]:
         """
         attaches translation to each indexed row
         """
-        missed, copy = list(), set()
+        missed = list()
         for row in rows:
             if translation := results.get(str(row.index), None):
                 if isinstance(translation, dict):
@@ -159,20 +158,23 @@ class TranslatorV1(BaseLLMTranslator):
                     else:
                         if f'{row.index}_1' in translation:
                             translation = ' '.join(translation.values())
-                row.translations = TranslationContent(content=translation)
-                copy.add(row.model_copy(deep=True))
                 self._results[row.index] = translation
             else:
                 missed.append(row)
 
-        return copy, missed
+        return missed
 
     async def _update_translations(self, translations: dict, chunk: list[SRTBlock]) -> NoReturn:
-        rows, missed = self._add_translation_to_rows(rows=chunk, results=translations)
-        new = self.translation_obj.subtitles | rows
-        self.translation_obj.subtitles = new
+        self._add_translation_to_rows(rows=chunk, results=translations)
+        before = len(list(self.rows_with_translations(rows=self.translation_obj.subtitles)))
+        logging.debug(f'updating {before} rows with translations')
+        for row in self.translation_obj.subtitles:
+            if row.index in self._results:
+                row.translations = TranslationContent(content=self._results[row.index])
         self.translation_obj.updated_at = datetime.datetime.utcnow()
         await self.translation_obj.save()
+        after = len(list(self.rows_with_translations(rows=self.translation_obj.subtitles)))
+        logging.debug(f'updated {after} rows with translations')
 
     async def _run_translation_hook(self, chunk):
         """
@@ -187,7 +189,7 @@ class TranslatorV1(BaseLLMTranslator):
                 logging.debug(f'{self_name}: starting to translate chunk number {chunk_id} via openai')
                 answer = await self._run_translation_hook(chunk=chunk)
                 await self._update_translations(translations=answer, chunk=chunk)
-                progress = pct(len(list(self.rows_with_translations(rows=chunk))), len(self.rows))
+                progress = pct(len(list(self.rows_with_translations(rows=self.rows))), len(self.rows))
                 logging.debug(f'Finished chunk number {chunk_id} via openai')
                 logging.debug(f'{self_name}: Completed Rows: {progress}%')
 

@@ -3,7 +3,6 @@ import json
 import logging
 import re
 from datetime import timedelta
-from typing import Literal
 
 import magic
 import srt
@@ -14,6 +13,7 @@ from beanie import PydanticObjectId
 from common.consts import SrtString, XMLString, JsonStr
 from common.models.core import Translation, SRTBlock, TranslationStates
 from services.constructor import TranslatorV1, SubtitlesResults, TranslationAuditor
+from services.convertors import xml_to_srt
 
 
 class BaseHandler:
@@ -228,7 +228,9 @@ async def run_translation(
         detected_mime_type = mime_type.lower()
 
     if 'xml' in detected_mime_type:
-        handler = XMLHandler
+        blob_content = xml_to_srt(text=blob_content)
+        handler = SRTHandler
+        # handler = XMLHandler
     elif 'json' in detected_mime_type:
         handler = JSONHandler
     elif 'srt' in detected_mime_type:
@@ -269,9 +271,8 @@ def logging_setup():
 if __name__ == '__main__':
     logging_setup()
     _paths = {
-        'Suits 0108': '/Users/yovel.c/PycharmProjects/services/sublineStreamlit/srts/suits0108/Suits - 1x08 - Identity Crisis.HDTV.L0L.en.srt',
-        'Suits 0107': '/Users/yovel.c/PycharmProjects/services/sublineStreamlit/srts/suits0108/Suits - 1x07 - Play The Man.HDTV.en.srt',
-        'Beckham 03': '/Users/yovel.c/PycharmProjects/services/sublineStreamlit/srts/Beckham 03/original_en.srt'
+        'Suits 0104': '/Users/yovel.c/PycharmProjects/services/sublineStreamlit/srts/suits0104/original_en.srt',
+        'Suits 0108': '/Users/yovel.c/PycharmProjects/services/sublineStreamlit/srts/suits0108/Suits - 1x08 - Identity Crisis.HDTV.L0L.en.srt'
     }
     _ret = asyncio.run(main(**_paths))
     print(_ret)
