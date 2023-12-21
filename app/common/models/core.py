@@ -334,7 +334,7 @@ class Translation(BaseCreateUpdateDocument):
         is_root = True
 
     def __repr__(self):
-        return f'Translation for project {self.project_id} to {self.target_language}. \n State: {self.state.value}, Num Rows: {len(self.subtitles)}'
+        return f'Translation: {self.name} for project {self.project_id} to {self.target_language}. \n State: {self.state.value}, Num Rows: {len(self.subtitles)}'
 
     @model_validator(mode='before')
     @classmethod

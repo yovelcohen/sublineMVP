@@ -9,6 +9,7 @@ import magic
 import srt
 from xml.etree import ElementTree as ET
 import streamlit as st
+from beanie import PydanticObjectId
 
 from common.consts import SrtString, XMLString, JsonStr
 from common.models.core import Translation, SRTBlock, TranslationStates
@@ -48,7 +49,11 @@ class BaseHandler:
             await self._set_state(state=TranslationStates.IN_PROGRESS)
             if recovery_mode:
                 self._results = SubtitlesResults(translation_obj=self.translation_obj)
-                rows = list(self._results.rows_missing_translations(self.translation_obj.subtitles))
+                rows = list(
+                    TranslatorV1(translation_obj=self.translation_obj).rows_missing_translations(
+                        self.translation_obj.subtitles
+                    )
+                )
                 logging.info(f"Running in recovery mode, found {len(rows)} rows to translate")
                 st.toast(f'Running in recovery mode, found {len(rows)} rows to translate')
             else:
@@ -56,7 +61,6 @@ class BaseHandler:
             self.translation_obj.subtitles = set(rows)
             await self.translation_obj.save()
             translator = TranslatorV1(translation_obj=self.translation_obj)
-            st.session_state['bar'].progress(15, 'Starting Translation')
             self._results = await translator(num_rows_in_chunk=25)
 
             if smart_audit:
@@ -222,7 +226,7 @@ async def run_translation(
         detected_mime_type = detected_mime_type.lower()
     else:
         detected_mime_type = mime_type.lower()
-    st.session_state['bar'].progress(5, 'File Successfully Parsed')
+
     if 'xml' in detected_mime_type:
         handler = XMLHandler
     elif 'json' in detected_mime_type:
@@ -235,28 +239,39 @@ async def run_translation(
         raise ValueError(f"Unsupported file type: {detected_mime_type}")
     return await handler(raw_content=blob_content, translation_obj=task).run(raw_results=raw_results)
 
-# async def main(blob):
-#     await init_db(settings, [Translation])
-#     task = Translation(target_language='Hebrew', source_language='English', subtitles=[], project_id=PydanticObjectId())
-#     await task.save()
-#     return await run_translation(task=task, model='good', blob_content=blob, raw_results=True)
-#
-#
-# def logging_setup():
-#     logging.basicConfig(
-#         level=logging.DEBUG,
-#         format="%(levelname)s %(asctime)s %(name)s:%(message)s",
-#         force=True,
-#     )  # Change these settings for your own purpose, but keep force=True at least.
-#     logging.getLogger('httpcore').setLevel(logging.INFO)
-#     logging.getLogger('openai').setLevel(logging.INFO)
-#
-#
-# if __name__ == '__main__':
-#     logging_setup()
-#     with open(
-#             '/Users/yovel.c/PycharmProjects/services/sublineStreamlit/srts/theOffice0409/original_english.srt', 'r'
-#     ) as f:
-#         data = f.read()
-#     ret = asyncio.run(main(blob=data))
-#     print(ret)
+
+async def main(**name_to_paths):
+    from common.config import settings
+    from common.db import init_db
+    await init_db(settings, [Translation])
+    ret = []
+    for name, path in name_to_paths.items():
+        with open(path, 'r') as f:
+            data = f.read()
+
+        task = Translation(target_language='Hebrew', source_language='English', subtitles=[],
+                           project_id=PydanticObjectId(), name=name)
+        await task.save()
+        ret.append(await run_translation(task=task, blob_content=data, raw_results=True, mime_type='srt'))
+    return ret
+
+
+def logging_setup():
+    logging.basicConfig(
+        level=logging.DEBUG,
+        format="%(levelname)s %(asctime)s %(name)s:%(message)s",
+        force=True,
+    )  # Change these settings for your own purpose, but keep force=True at least.
+    logging.getLogger('httpcore').setLevel(logging.INFO)
+    logging.getLogger('openai').setLevel(logging.INFO)
+
+
+if __name__ == '__main__':
+    logging_setup()
+    _paths = {
+        'Suits 0108': '/Users/yovel.c/PycharmProjects/services/sublineStreamlit/srts/suits0108/Suits - 1x08 - Identity Crisis.HDTV.L0L.en.srt',
+        'Suits 0107': '/Users/yovel.c/PycharmProjects/services/sublineStreamlit/srts/suits0108/Suits - 1x07 - Play The Man.HDTV.en.srt',
+        'Beckham 03': '/Users/yovel.c/PycharmProjects/services/sublineStreamlit/srts/Beckham 03/original_en.srt'
+    }
+    _ret = asyncio.run(main(**_paths))
+    print(_ret)

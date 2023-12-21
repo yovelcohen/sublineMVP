@@ -83,18 +83,6 @@ class SubtitlesResults:
     def to_webvtt(self):
         raise NotImplementedError
 
-    @classmethod
-    def rows_missing_translations(cls, rows):
-        for row in rows:
-            if row.translations is None:
-                yield row
-
-    @classmethod
-    def rows_with_translations(cls, rows):
-        for row in rows:
-            if row.translations is not None and row.translations.content is not None:
-                yield row
-
 
 class BaseLLMTranslator:
     __slots__ = (
@@ -140,32 +128,18 @@ class BaseLLMTranslator:
 
 class TranslatorV1(BaseLLMTranslator):
 
-    async def _translate(
-            self, *,
-            num_rows_in_chunk: int = 500,
-            start_progress_val: int = 30,
-            middle_progress_val: int = 45,
-            end_progress_val: int = 60
-    ) -> SubtitlesResults:
+    async def _translate(self, num_rows_in_chunk: int = 500, **kwargs) -> SubtitlesResults:
         """
         Class entry point, runs the translation process
         """
         cls_name = self.class_name()
-        st.session_state['currentVal'] = start_progress_val
-        st.session_state['bar'].progress(start_progress_val, f'Running {cls_name} Translation')
         await self._run_and_update(num_rows_in_chunk=num_rows_in_chunk, rows=self.rows)
         logging.debug('finished translating main chunks, handling failed rows')
-
-        st.session_state['bar'].progress(middle_progress_val, f'Finished generating {cls_name} Translation')
-        st.session_state['currentVal'] = middle_progress_val
 
         await self._translate_missing(num_rows_in_chunk=num_rows_in_chunk)
         self.translation_obj.tokens_cost = total_stats.get()
         self.translation_obj.state = TranslationStates.DONE
         await self.translation_obj.save()
-
-        st.session_state['bar'].progress(end_progress_val, f'Finished {cls_name} Translations')
-        st.session_state['currentVal'] = end_progress_val
 
         return SubtitlesResults(translation_obj=self.translation_obj)
 
@@ -185,12 +159,9 @@ class TranslatorV1(BaseLLMTranslator):
                     else:
                         if f'{row.index}_1' in translation:
                             translation = ' '.join(translation.values())
-                try:
-                    row.translations = TranslationContent(content=translation)
-                    copy.add(row.model_copy(deep=True))
-                    self._results[row.index] = translation
-                except Exception as e:
-                    print('b')
+                row.translations = TranslationContent(content=translation)
+                copy.add(row.model_copy(deep=True))
+                self._results[row.index] = translation
             else:
                 missed.append(row)
 
@@ -198,20 +169,10 @@ class TranslatorV1(BaseLLMTranslator):
 
     async def _update_translations(self, translations: dict, chunk: list[SRTBlock]) -> NoReturn:
         rows, missed = self._add_translation_to_rows(rows=chunk, results=translations)
-        existing_translation_c = len(list(self.rows_with_translations(rows=self.translation_obj.subtitles)))
-        logging.debug(
-            f'before translation object with new translations, len: {len(rows) - len(missed)}, missed: {len(missed)}, on_object: {existing_translation_c}'
-        )
         new = self.translation_obj.subtitles | rows
         self.translation_obj.subtitles = new
         self.translation_obj.updated_at = datetime.datetime.utcnow()
         await self.translation_obj.save()
-        existing_translation_c1 = len(
-            list(self.rows_with_translations(rows=self.translation_obj.subtitles))
-        )
-        logging.debug(
-            f'after translation object with new translations, len: {len(rows) - len(missed)}, missed: {len(missed)}, on_object: {existing_translation_c1}'
-        )
 
     async def _run_translation_hook(self, chunk):
         """
@@ -226,22 +187,14 @@ class TranslatorV1(BaseLLMTranslator):
                 logging.debug(f'{self_name}: starting to translate chunk number {chunk_id} via openai')
                 answer = await self._run_translation_hook(chunk=chunk)
                 await self._update_translations(translations=answer, chunk=chunk)
-                progress = pct(
-                    len(list(SubtitlesResults.rows_with_translations(rows=chunk))),
-                    len(self.rows)
-                )
+                progress = pct(len(list(self.rows_with_translations(rows=chunk))), len(self.rows))
                 logging.debug(f'Finished chunk number {chunk_id} via openai')
                 logging.debug(f'{self_name}: Completed Rows: {progress}%')
-                st.session_state['bar'].progress(st.session_state['currentVal'], 'Translating...')
 
             except Exception as e:
                 raise e
 
-    async def _run_and_update(
-            self, *,
-            rows: list[SRTBlock],
-            num_rows_in_chunk: int
-    ):
+    async def _run_and_update(self, *, rows: list[SRTBlock], num_rows_in_chunk: int):
         text_chunks = self._divide_rows(rows=rows, num_rows_in_chunk=num_rows_in_chunk)
         logging.debug('amount of chunks: %s', len(text_chunks))
         tasks = [self._run_one_chunk(chunk=chunk, chunk_id=i) for i, chunk in enumerate(text_chunks, start=1)]
@@ -309,11 +262,7 @@ def find_most_similar_sentence(source_sentence, sentences_list):
 class TranslationRevisor(TranslatorV1):
     __slots__ = TranslatorV1.__slots__ + ('unmatched',)
 
-    def __init__(
-            self, *,
-            translation_obj: Translation,
-            rows: list[SRTBlock] = None,
-    ):
+    def __init__(self, *, translation_obj: Translation, rows: list[SRTBlock] = None):
         super().__init__(translation_obj=translation_obj, rows=rows)
         self.unmatched = defaultdict(list)
 

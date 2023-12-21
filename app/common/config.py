@@ -12,7 +12,9 @@ class Settings(BaseSettings):
     SSL_CA_CERTS: bool = True
     DATABASE_NAME: str = 'projects'
     OPENAI_KEY: str = ''
+    OPENAI_BACKUP_KEY: str = ''
     AZURE_OPENAI_ENDPOINT: str = 'https://aiglix.openai.azure.com/'
+    AZURE_OPENAI_ENDPOINT_BACKUP: str = 'https://glixbackup.openai.azure.com/'
     SYSTEM_EMAIL: str = 'yovell04@gmail.com'
     SENDGRID_API_KEY: str = 'Bearer 123'
 
