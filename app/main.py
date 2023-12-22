@@ -266,6 +266,7 @@ def _display_comparison_panel(name, subtitles, rows: list[SRTBlock], target_lang
         )
         st.write('Successfully Saved Results to DB!')
         st.info(f"Num Rows: {len(edited_df)}\n Num Mistakes: {len(marked_rows)} ({feedback_obj.error_pct} %))")
+        logging.info('finished and saved subtitles review')
 
     if st.button('Export Results'):
         blob = edited_df.to_csv(header=True)
@@ -590,7 +591,7 @@ def manage_existing():
         to_delete = [proj['name'] for proj in rows if proj['Delete'] is True]
         if to_delete:
             ack = asyncio.run(_delete_docs(to_delete=to_delete))
-            logger.info(f'Deleted {ack} Projects')
+            logger.info(f'Deleted {ack} translation projects')
             st.success(f'Successfully Deleted {ack} Projects, Refresh Page To See Changes')
 
 
