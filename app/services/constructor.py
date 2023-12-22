@@ -67,10 +67,9 @@ class SubtitlesResults:
     def to_json(self) -> JsonStr:
         return cast(JsonStr, self.translation_obj.model_dump_json())
 
-    def to_xml(self, root: ET, parent_map: dict[str, ET.Element], use_revision: bool = False) -> XMLString:
+    def to_xml(self, root: ET, parent_map: dict[str, ET.Element]) -> XMLString:
         parent_map = {k.strip(): v for k, v in parent_map.items()}
-        text_to_translation = {row.content: row.translations.get_selected(revision_fallback=use_revision)
-                               for row in self.translation_obj.subtitles}
+        text_to_translation = {row.content: row.translations.content for row in self.translation_obj.subtitles}
         for original_text, translated_text in text_to_translation.items():
             parent_map[original_text].text = translated_text
         xml = cast(XMLString, ET.tostring(root, encoding='utf-8'))
@@ -95,14 +94,10 @@ class BaseLLMTranslator:
         self._results = dict()
 
     def rows_missing_translations(self, rows):
-        for row in rows:
-            if row.index not in self._results:
-                yield row
+        return [row for row in rows if (row.index not in self._results) and (row.is_translated is False)]
 
     def rows_with_translations(self, rows):
-        for row in rows:
-            if row.index in self._results:
-                yield row
+        return [row for row in rows if (row.index in self._results) or (row.is_translated is True)]
 
     @classmethod
     def class_name(cls):
@@ -127,7 +122,7 @@ class TranslatorV1(BaseLLMTranslator):
         """
         await self._run_and_update(num_rows_in_chunk=num_rows_in_chunk, rows=self.rows)
         logging.debug('finished translating main chunks, handling failed rows')
-        await self.translate_missing(num_rows_in_chunk=num_rows_in_chunk)
+        await self.translate_missing(num_rows_in_chunk=num_rows_in_chunk, force_update=False)
         return SubtitlesResults(translation_obj=self.translation_obj)
 
     def _format_results(self, *, rows: list[SRTBlock], results: dict[str, str]) -> list[SRTBlock]:
@@ -186,16 +181,17 @@ class TranslatorV1(BaseLLMTranslator):
         tasks = [self._run_one_chunk(chunk=chunk, chunk_id=i) for i, chunk in enumerate(text_chunks, start=1)]
         await stqdm.gather(*tasks, total=len(tasks))
 
-    async def translate_missing(self, *, num_rows_in_chunk: int, recursion_count=1):
+    async def translate_missing(self, *, num_rows_in_chunk: int, recursion_count=1, force_update: bool = False):
         """
         Recursively fill the missing translations result
 
         :param num_rows_in_chunk: number of rows to translate in each chunk
         :param recursion_count: current recursion count
+        :param force_update: if True will force over recursion limit, good for recovery mode runs
 
         :raises RuntimeError if recursion_count exceeds 3
         """
-        missing = list(self.rows_missing_translations(rows=self.rows))
+        missing = self.rows_missing_translations(rows=self.rows)
         if len(missing) < 2:
             return
 
@@ -203,14 +199,16 @@ class TranslatorV1(BaseLLMTranslator):
         logging.debug(
             f'found %s missing translations result on LLM: {self.class_name()}, translating them now', len(missing)
         )
-        if recursion_count == 3:
+        if recursion_count == 3 and not force_update:
             logging.warning('failed to translate missing rows, recursion count exceeded')
             st.warning('failed to translate missing rows, recursion exceeded, stopping')
             raise RuntimeError('failed to translate missing rows, recursion exceeded')
 
         await self._run_and_update(rows=missing, num_rows_in_chunk=num_rows_in_chunk)
 
-        return await self.translate_missing(num_rows_in_chunk=num_rows_in_chunk, recursion_count=recursion_count)
+        return await self.translate_missing(
+            num_rows_in_chunk=num_rows_in_chunk, recursion_count=recursion_count, force_update=force_update
+        )
 
     def _divide_rows(self, *, rows: list[SRTBlock], num_rows_in_chunk: int) -> list[list[SRTBlock]]:
         return [rows[i:i + num_rows_in_chunk] for i in range(0, len(rows), num_rows_in_chunk)]

@@ -158,19 +158,6 @@ class Subtitle(BaseModel):
 class TranslationContent(BaseModel):
     content: str
     revision: str | None = None
-    selected: str | None = None
-
-    def get_selected(self, revision_fallback: bool = False):
-        if self.selected == '1':
-            return self.content
-        elif self.selected == '2':
-            return self.revision
-        else:
-            if self.selected is not None:
-                return self.selected
-            elif self.selected is None and revision_fallback and self.revision is not None:
-                return self.revision
-            return self.content
 
 
 class SRTRowDict(TypedDict):
@@ -212,7 +199,11 @@ class SRTBlock(BaseModel):
 
     @property
     def is_translated(self):
-        return self.translations is not None and self.translations.content is not None
+        if self.translations is None or (self.translations is not None and self.translations.content is None):
+            return False
+        if self.translations is not None and isinstance(self.translations.content, str):
+            return True
+        return False
 
     @model_validator(mode='before')
     @classmethod
@@ -222,11 +213,6 @@ class SRTBlock(BaseModel):
             index = int(index.split('subtitle')[-1].strip())
         data['index'] = int(index)
         return data
-
-    def is_translated(self, is_revision: bool = False):
-        if not is_revision:
-            return self.translations is not None and self.translations.content
-        return self.translations is not None and self.translations.revision
 
     def to_dict(self) -> SRTRowDict:
         return SRTRowDict(index=self.index, speaker=self.speaker, start=timedelta_to_srt_timestamp(self.start),
@@ -247,7 +233,7 @@ class SRTBlock(BaseModel):
                   SRT formatted subtitle block
         :rtype: str
         """
-        output_content = self.translations.get_selected(revision_fallback=revision) if translated else self.content
+        output_content = self.translations.content if translated else self.content
         output_proprietary = self.proprietary
         if output_proprietary:
             # output_proprietary is output directly next to the timestamp, so
@@ -355,15 +341,11 @@ class Translation(BaseCreateUpdateDocument):
 
     @property
     def rows_missing_translation(self):
-        for row in self.subtitles:
-            if not row.is_translated:
-                yield row
+        return [row for row in self.subtitles if not row.is_translated]
 
     @property
     def rows_with_translation(self):
-        for row in self.subtitles:
-            if row.is_translated:
-                yield row
+        return [row for row in self.subtitles if row.is_translated]
 
     def get_blob_path(self, project: Project, file_mime):
         return project.blob_path + f'{self.target_language}.{file_mime}'

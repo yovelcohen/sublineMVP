@@ -51,11 +51,11 @@ class BaseHandler:
         return await translator(num_rows_in_chunk=25)
 
     async def _recover(self):
-        rows = list(self.translation_obj.rows_missing_translation)
+        rows = self.translation_obj.rows_missing_translation
         logging.info(f"Running in recovery mode, found {len(rows)} rows to translate")
         st.toast(f'Running in recovery mode, found {len(rows)} rows to translate')
         translator = TranslatorV1(translation_obj=self.translation_obj)
-        await translator.translate_missing(num_rows_in_chunk=25)
+        await translator.translate_missing(num_rows_in_chunk=25, force_update=True)
         return SubtitlesResults(translation_obj=self.translation_obj)
 
     async def run(self, recovery_mode: bool = False):
@@ -170,8 +170,8 @@ class XMLHandler(BaseHandler):
         ]
         return blocks
 
-    def parse_output(self, output: SubtitlesResults, use_revision: bool) -> XMLString:  # noqa
-        return output.to_xml(root=self.root, parent_map=self.parent_map, use_revision=use_revision)
+    def parse_output(self, output: SubtitlesResults) -> XMLString:  # noqa
+        return output.to_xml(root=self.root, parent_map=self.parent_map)
 
 
 class SRTHandler(BaseHandler):
