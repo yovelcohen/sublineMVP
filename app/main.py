@@ -503,9 +503,12 @@ def subtitles_viewer_from_db():
 
     if 'subtitles' in st.session_state:
         with st.expander("Download SRT", expanded=False):
-            st.download_button(data=rows_to_srt(rows=st.session_state['rows'], translated=True,
-                                                target_language=st.session_state['targetLang']),
-                               file_name=f'{st.session_state["tName"]}.srt', label='Download SRT')
+            srt_string = rows_to_srt(
+                rows=[row for row in st.session_state['rows'] if row.translations is not None],
+                translated=True,
+                target_language=st.session_state['targetLang']
+            )
+            st.download_button(data=srt_string, file_name=f'{st.session_state["tName"]}.srt', label='Download SRT')
 
         _display_comparison_panel(
             name=chosen_name, subtitles=st.session_state['subtitles'],
