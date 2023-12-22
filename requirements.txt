@@ -29,3 +29,4 @@ scikit-learn==1.3.2
 scipy==1.11.4
 sentencepiece==0.1.99
 mistralai==0.0.8
+webvtt-py
