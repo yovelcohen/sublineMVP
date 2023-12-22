@@ -1,6 +1,7 @@
 import asyncio
 import datetime
 import io
+import statistics
 import time
 import zipfile
 from collections import defaultdict
@@ -17,6 +18,7 @@ from beanie import PydanticObjectId, Document
 from beanie.exceptions import CollectionWasNotInitialized
 from beanie.odm.operators.find.comparison import In
 from beanie.odm.operators.find.logical import Or
+# from matplotlib import pyplot as plt
 from pydantic import BaseModel, model_validator
 
 from common.consts import SrtString
@@ -532,22 +534,44 @@ def view_stats():
     num_items = len(error_items)
     items_per_column = (num_items + 2) // 4  # +2 for rounding up when dividing by 3
 
+    data = stats.translations
+    for i in data:
+        i.pop('Delete', None)
+
+    df = pd.DataFrame(data)
+    df = df[['name', 'State', 'Took', 'Reviewed', 'Amount Rows', 'Amount Errors', 'Errors %',
+             'Amount OG Words', 'Amount Translated Words', 'Amount OG Characters',
+             'Amount Translated Characters', 'token_cost']]
+    df['Amount Errors'] = df['Amount Errors'].apply(lambda x: int(x) if not isnan(x) else x)
+    df = df.round(2)
+
     with col1:
-        st.metric('Total Checked Rows', _format_number(stats.totalChecked))
+        st.metric('Amount Feedbacks', _format_number(stats.totalFeedbacks), '-', delta_color='off')
         st.metric('Original Characters Count', _format_number(stats.totalOgCharacters))
     with col2:
-        st.metric('Total Errors Count', _format_number(total_errors))
+        st.metric('Total Checked Rows', _format_number(stats.totalChecked), '-', delta_color='off')
         st.metric('Translated Characters Count', _format_number(stats.totalTranslatedCharacters))
     with col3:
-        st.metric('Error Percentage', f'{stats.errorPct}%')
+        st.metric('Total Errors Count', _format_number(total_errors), f'{stats.errorPct}%', delta_color='off')
         st.metric('Original Words Count', _format_number(stats.amountOgWords))
     with col4:
-        st.metric('Amount Feedbacks', _format_number(stats.totalFeedbacks))
+        errors_pct = [err for err in df['Errors %'].to_list() if not isnan(err)]
+        errors = [err for err in df['Amount Errors'].to_list() if not isnan(err)]
+        st.metric(
+            'Media Errors Count - Single Translation',
+            statistics.median(errors),
+            f'{statistics.median(errors_pct)}%',
+            delta_color='off'
+        )
         st.metric('Translated Words Count', _format_number(stats.amountTranslatedWords))
         prepositions_amount = stats.errorsCounter.get('Prepositions', 0)
         prepositions_in_pct = pct(prepositions_amount, total_errors)
-        st.metric('Prepositions', _format_number(prepositions_amount), f'{prepositions_in_pct}% of total errors',
-                  delta_color='off')
+        st.metric(
+            'Prepositions',
+            _format_number(prepositions_amount),
+            f'{prepositions_in_pct}% of total errors',
+            delta_color='off'
+        )
 
     def display_metrics(column, items):
         with column:
@@ -561,19 +585,14 @@ def view_stats():
         display_metrics(col, error_items[start_index:end_index])
         start_index = end_index
 
-    st.divider()
+    # st.divider()
+    # fig, ax = plt.subplots()
+    # ax.pie(stats.errorsCounter.values(), labels=stats.errorsCounter.keys(), autopct='%1.1f%%')
+    # ax.axis('equal')
+    # st.pyplot(fig)
+    # st.divider()
+
     st.header('Items')
-    data = stats.translations
-    for i in data:
-        i.pop('Delete', None)
-
-    df = pd.DataFrame(data)
-    df = df[['name', 'State', 'Took', 'Reviewed', 'Amount Rows', 'Amount Errors', 'Errors %',
-             'Amount OG Words', 'Amount Translated Words', 'Amount OG Characters',
-             'Amount Translated Characters', 'token_cost']]
-    df['Amount Errors'] = df['Amount Errors'].apply(lambda x: int(x) if not isnan(x) else x)
-    df = df.round(2)
-
     st.dataframe(df, hide_index=True, use_container_width=True)
     st.divider()
 
