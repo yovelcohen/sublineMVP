@@ -47,36 +47,35 @@ class BaseHandler:
         self.translation_obj.state = state
         await self.translation_obj.save()
 
-    async def run(self, *, smart_audit: bool = False, recovery_mode: bool = False):
+    async def _run(self):
+        self.translation_obj.subtitles = set(self.to_rows())
+        translator = TranslatorV1(translation_obj=self.translation_obj)
+        await self.translation_obj.save()
+        return await translator(num_rows_in_chunk=25)
+
+    async def _recover(self):
+        rows = list(self.translation_obj.rows_misssing_translation)
+        logging.info(f"Running in recovery mode, found {len(rows)} rows to translate")
+        st.toast(f'Running in recovery mode, found {len(rows)} rows to translate')
+        translator = TranslatorV1(translation_obj=self.translation_obj)
+        await translator.translate_missing(num_rows_in_chunk=25)
+        return SubtitlesResults(translation_obj=self.translation_obj)
+
+    async def run(self, recovery_mode: bool = False):
         try:
             await self._set_state(state=TranslationStates.IN_PROGRESS)
-            translator = TranslatorV1(translation_obj=self.translation_obj)
-
-            if recovery_mode:
-                rows = list(self.translation_obj.rows_misssing_translation)
-                logging.info(f"Running in recovery mode, found {len(rows)} rows to translate")
-                st.toast(f'Running in recovery mode, found {len(rows)} rows to translate')
-                await translator.translate_missing(num_rows_in_chunk=25)
-                self._results = SubtitlesResults(translation_obj=self.translation_obj)
-            else:
-                rows = self.to_rows()
-                self.translation_obj.subtitles = set(rows)
-                await self.translation_obj.save()
-                self._results = await translator(num_rows_in_chunk=25)
-
+            self._results = await self._recover() if recovery_mode else await self._run()
             self._results.translation_obj.tokens_cost = total_stats.get()
             self._results.translation_obj.state = TranslationStates.DONE
             await self._results.translation_obj.replace()
-
             return self._results
-
         except Exception as e:
             await self._set_state(state=TranslationStates.FAILED)
             logging.error(f"Failed to run translation", exc_info=True)
             raise e
 
     @property
-    def results_holder(self):
+    def results(self):
         return self._results
 
 

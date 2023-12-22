@@ -1,7 +1,4 @@
-import argparse
-import codecs
 import math
-import os
 import re
 from typing import cast
 
@@ -157,15 +154,13 @@ def xml_to_srt(text: XMLString) -> SrtString:
     br_re = re.compile(u'(<br\s*\/?>)+')
     fmt_t = True
     for s in sub_lines:
-        s, has_cursive = xml_cleanup_spans_start(
-            span_id_re, cursive_ids, s)
+        s, has_cursive = xml_cleanup_spans_start(span_id_re, cursive_ids, s)
 
         string_region_re = r'<p(.*region="' + display_align_before + r'".*")>(.*)</p>'
         s = re.sub(string_region_re, r'<p\1>{\\an8}\2</p>', s)
         content = re.search(content_re, s).group(1)
 
-        br_tags = re.search(br_re, content)
-        if br_tags:
+        if br_tags := re.search(br_re, content):
             content = u"\n".join(content.split(br_tags.group()))
 
         content = xml_cleanup_spans_end(
@@ -183,12 +178,15 @@ def xml_to_srt(text: XMLString) -> SrtString:
             prev_time = {"start": start, "end": end}
             prev_content.append(content)
             continue
+
         append_subs(prev_time["start"], prev_time["end"], prev_content, fmt_t)
         prev_time = {"start": start, "end": end}
         prev_content = [content]
+
     append_subs(start, end, prev_content, fmt_t)
 
-    lines = (u"{}\n{} --> {}\n{}\n".format(
-        s + 1, subs[s]["start_time"], subs[s]["end_time"], subs[s]["content"])
-        for s in range(len(subs)))
+    lines = (
+        u"{}\n{} --> {}\n{}\n".
+        format(s + 1, subs[s]["start_time"], subs[s]["end_time"], subs[s]["content"]) for s in range(len(subs))
+    )
     return cast(SrtString, u"\n".join(lines))

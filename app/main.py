@@ -484,7 +484,7 @@ def subtitles_viewer_from_db():
         revs = [row.translations.revision for row in translation.subtitles if row.translations is not None]
         if not all([r is None for r in revs]):
             subtitles['Glix Translation 2'] = revs
-
+        st.session_state['tName'] = translation.name
         st.session_state['subtitles'] = subtitles
         st.session_state['lastRow'] = rows[-1]
 
@@ -501,6 +501,11 @@ def subtitles_viewer_from_db():
             accept_form()
 
     if 'subtitles' in st.session_state:
+        with st.expander("Download SRT", expanded=False):
+            st.download_button(data=rows_to_srt(rows=st.session_state['rows'], translated=True,
+                                                target_language=st.session_state['targetLang']),
+                               file_name=f'{st.session_state["tName"]}.srt', label='Download SRT')
+
         _display_comparison_panel(
             name=chosen_name, subtitles=st.session_state['subtitles'],
             rows=st.session_state['rows'], target_lang=st.session_state['targetLang']
