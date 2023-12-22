@@ -141,8 +141,7 @@ async def translate(
     await task.save()
     try:
         with st.status('Translating...'):
-            ret: SubtitlesResults = await run_translation(task=task, blob_content=file, raw_results=True,
-                                                          mime_type=_format)
+            ret: SubtitlesResults = await run_translation(task=task, blob_content=file, mime_type=_format)
             st.session_state['name'] = ret
     except openai.APITimeoutError as e:
         st.error('Translation Failed Due To OpenAI API Timeout, Please Try Again Later')

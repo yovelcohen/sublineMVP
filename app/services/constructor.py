@@ -85,9 +85,7 @@ class SubtitlesResults:
 
 
 class BaseLLMTranslator:
-    __slots__ = (
-        'rows', 'make_function_translation', 'failed_rows', 'sema', 'translation_obj', 'iterations', '_results'
-    )
+    __slots__ = 'rows', 'make_function_translation', 'failed_rows', 'sema', 'translation_obj', '_results'
 
     def __init__(self, translation_obj: Translation, *, rows: list[SRTBlock] = None):
         if not rows and not translation_obj.subtitles:
@@ -97,8 +95,7 @@ class BaseLLMTranslator:
         rows = rows or translation_obj.subtitles
         self.rows = sorted(list(rows), key=lambda row: row.index)
         self.failed_rows: dict[str, list[SRTBlock]] = dict()
-        self.sema = asyncio.BoundedSemaphore(30)
-        self.iterations = 0
+        self.sema = asyncio.BoundedSemaphore(15)
         self._results = dict()
 
     def rows_missing_translations(self, rows):
@@ -134,17 +131,10 @@ class TranslatorV1(BaseLLMTranslator):
         """
         await self._run_and_update(num_rows_in_chunk=num_rows_in_chunk, rows=self.rows)
         logging.debug('finished translating main chunks, handling failed rows')
-
-        await self._translate_missing(num_rows_in_chunk=num_rows_in_chunk)
-        self.translation_obj.tokens_cost = total_stats.get()
-        self.translation_obj.state = TranslationStates.DONE
-        await self.translation_obj.save()
-
+        await self.translate_missing(num_rows_in_chunk=num_rows_in_chunk)
         return SubtitlesResults(translation_obj=self.translation_obj)
 
-    def _add_translation_to_rows(
-            self, *, rows: list[SRTBlock], results: dict[str, str]
-    ) -> list[SRTBlock]:
+    def _format_results(self, *, rows: list[SRTBlock], results: dict[str, str]) -> list[SRTBlock]:
         """
         attaches translation to each indexed row
         """
@@ -158,6 +148,8 @@ class TranslatorV1(BaseLLMTranslator):
                     else:
                         if f'{row.index}_1' in translation:
                             translation = ' '.join(translation.values())
+                        elif str(row.index) in translation:
+                            translation = translation[row.index]
                 self._results[row.index] = translation
             else:
                 missed.append(row)
@@ -165,16 +157,11 @@ class TranslatorV1(BaseLLMTranslator):
         return missed
 
     async def _update_translations(self, translations: dict, chunk: list[SRTBlock]) -> NoReturn:
-        self._add_translation_to_rows(rows=chunk, results=translations)
-        before = len(list(self.rows_with_translations(rows=self.translation_obj.subtitles)))
-        logging.debug(f'updating {before} rows with translations')
+        self._format_results(rows=chunk, results=translations)
         for row in self.translation_obj.subtitles:
             if row.index in self._results:
                 row.translations = TranslationContent(content=self._results[row.index])
-        self.translation_obj.updated_at = datetime.datetime.utcnow()
         await self.translation_obj.save()
-        after = len(list(self.rows_with_translations(rows=self.translation_obj.subtitles)))
-        logging.debug(f'updated {after} rows with translations')
 
     async def _run_translation_hook(self, chunk):
         """
@@ -201,9 +188,8 @@ class TranslatorV1(BaseLLMTranslator):
         logging.debug('amount of chunks: %s', len(text_chunks))
         tasks = [self._run_one_chunk(chunk=chunk, chunk_id=i) for i, chunk in enumerate(text_chunks, start=1)]
         await stqdm.gather(*tasks, total=len(tasks))
-        self.iterations += len(tasks)
 
-    async def _translate_missing(self, *, num_rows_in_chunk: int, recursion_count=1):
+    async def translate_missing(self, *, num_rows_in_chunk: int, recursion_count=1):
         """
         fill the missing translations result recursively
         """
@@ -226,7 +212,7 @@ class TranslatorV1(BaseLLMTranslator):
             num_rows_in_chunk=num_rows_in_chunk
         )
 
-        return await self._translate_missing(num_rows_in_chunk=num_rows_in_chunk, recursion_count=recursion_count)
+        return await self.translate_missing(num_rows_in_chunk=num_rows_in_chunk, recursion_count=recursion_count)
 
     def _divide_rows(self, *, rows: list[SRTBlock], num_rows_in_chunk: int) -> list[list[SRTBlock]]:
         return [rows[i:i + num_rows_in_chunk] for i in range(0, len(rows), num_rows_in_chunk)]
@@ -271,7 +257,7 @@ class TranslationRevisor(TranslatorV1):
     async def _run_translation_hook(self, chunk):
         return await review_revisions_via_openai(rows=chunk, target_language=self.target_language)
 
-    def _add_translation_to_rows(self, *, rows: list[SRTBlock], results: dict[str, str]):
+    def _format_results(self, *, rows: list[SRTBlock], results: dict[str, str]):
         """
         attaches translation to each indexed row
         """
@@ -304,7 +290,7 @@ class TranslationAuditor(TranslatorV1):
     async def _run_translation_hook(self, chunk):
         return await audit_results_via_openai(rows=set(chunk), target_language=self.target_language)
 
-    def _add_translation_to_rows(self, *, rows: list[SRTBlock], results: dict[str, str]):
+    def _format_results(self, *, rows: list[SRTBlock], results: dict[str, str]):
         for row in rows:
             if selection := results.get(str(row.index)):
                 if selection == '1':

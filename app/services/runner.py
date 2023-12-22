@@ -11,9 +11,12 @@ import streamlit as st
 from beanie import PydanticObjectId
 
 from common.consts import SrtString, XMLString, JsonStr
+from common.context_vars import total_stats
 from common.models.core import Translation, SRTBlock, TranslationStates
-from services.constructor import TranslatorV1, SubtitlesResults, TranslationAuditor
+from common.utils import rows_to_srt
+from services.constructor import TranslatorV1, SubtitlesResults
 from services.convertors import xml_to_srt
+from services.sync import sync_video_to_file
 
 
 class BaseHandler:
@@ -37,46 +40,36 @@ class BaseHandler:
     def to_rows(self) -> list[SRTBlock]:
         raise NotImplementedError
 
-    def parse_output(self, output, *args, **kwargs):
+    def parse_output(self, *, output, **kwargs):
         return output
 
     async def _set_state(self, state: TranslationStates):
         self.translation_obj.state = state
         await self.translation_obj.save()
 
-    async def run(self, *, smart_audit: bool = False, raw_results: bool = False, recovery_mode: bool = False):
+    async def run(self, *, smart_audit: bool = False, recovery_mode: bool = False):
         try:
             await self._set_state(state=TranslationStates.IN_PROGRESS)
+            translator = TranslatorV1(translation_obj=self.translation_obj)
+
             if recovery_mode:
-                self._results = SubtitlesResults(translation_obj=self.translation_obj)
-                rows = list(
-                    TranslatorV1(translation_obj=self.translation_obj).rows_missing_translations(
-                        self.translation_obj.subtitles
-                    )
-                )
+                rows = list(self.translation_obj.rows_misssing_translation)
                 logging.info(f"Running in recovery mode, found {len(rows)} rows to translate")
                 st.toast(f'Running in recovery mode, found {len(rows)} rows to translate')
+                await translator.translate_missing(num_rows_in_chunk=25)
+                self._results = SubtitlesResults(translation_obj=self.translation_obj)
             else:
                 rows = self.to_rows()
-            self.translation_obj.subtitles = set(rows)
-            await self.translation_obj.save()
-            translator = TranslatorV1(translation_obj=self.translation_obj)
-            self._results = await translator(num_rows_in_chunk=25)
+                self.translation_obj.subtitles = set(rows)
+                await self.translation_obj.save()
+                self._results = await translator(num_rows_in_chunk=25)
 
-            if smart_audit:
-                try:
-                    logging.info("Running Auditor app")
-                    await self._set_state(state=TranslationStates.SMART_AUDIT)
-                    auditor = TranslationAuditor(translation_obj=self._results.translation_obj, rows=self._results.rows)
-                    self._results = await auditor()
-                    logging.info('finished running auditor')
-                except Exception as e:
-                    st.warning(f"Failed to run smart audit, skipping")
-                    logging.error(f"Failed to run smart audit, skipping", exc_info=True)
+            self._results.translation_obj.tokens_cost = total_stats.get()
+            self._results.translation_obj.state = TranslationStates.DONE
+            await self._results.translation_obj.replace()
 
-            if raw_results:
-                return self._results
-            return self.parse_output(self._results)
+            return self._results
+
         except Exception as e:
             await self._set_state(state=TranslationStates.FAILED)
             logging.error(f"Failed to run translation", exc_info=True)
@@ -192,8 +185,12 @@ class SRTHandler(BaseHandler):
             for row in srt.parse(self.raw_content)
         ]
 
-    def parse_output(self, output: SubtitlesResults) -> SrtString:  # noqa
-        return output.to_srt()
+    def parse_output(self, *, output: SubtitlesResults, video_file_path=None) -> SrtString:
+        original_translation = output.to_srt()
+        if video_file_path:
+            rows = sync_video_to_file(video_path=self.translation_obj.video_path, srt_string=original_translation)
+            return rows_to_srt(rows=rows, target_language=self.translation_obj.target_language)
+        return original_translation
 
 
 class JSONHandler(BaseHandler):
@@ -207,15 +204,13 @@ class JSONHandler(BaseHandler):
 async def run_translation(
         task: Translation,
         blob_content,
-        mime_type: str = None,
-        raw_results: bool = False
+        mime_type: str = None
 ) -> SubtitlesResults | SrtString | JsonStr | XMLString:
     """
 
     :param task: a translation DB obj, associated with this run
     :param blob_content: raw string of the subtitles file
     :param mime_type: if not provided, will try to detect the mime type
-    :param raw_results: if True, outputs the raw results of the file
 
     :returns SubtitlesResults if raw_results is True,
              otherwise returns a string of translated subtitles in the uploaded format.
@@ -239,7 +234,7 @@ async def run_translation(
         handler = QTtextHandler
     else:
         raise ValueError(f"Unsupported file type: {detected_mime_type}")
-    return await handler(raw_content=blob_content, translation_obj=task).run(raw_results=raw_results)
+    return await handler(raw_content=blob_content, translation_obj=task).run()
 
 
 async def main(**name_to_paths):
@@ -254,7 +249,7 @@ async def main(**name_to_paths):
         task = Translation(target_language='Hebrew', source_language='English', subtitles=[],
                            project_id=PydanticObjectId(), name=name)
         await task.save()
-        ret.append(await run_translation(task=task, blob_content=data, raw_results=True, mime_type='srt'))
+        ret.append(await run_translation(task=task, blob_content=data, mime_type='srt'))
     return ret
 
 

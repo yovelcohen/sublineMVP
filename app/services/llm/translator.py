@@ -60,7 +60,6 @@ Example 7: "See, it's a little tricky" → "תראה, זה טיפה טריקי" 
 - Inflection and Slang Adjustment: Adapt English phrases to their natural, colloquial Hebrew equivalents, focusing on inflection and daily language usage.
 Example 1: English "This is only half." → Hebrew "זה רק חצי." instead of "זה רק המחצית." (Applying a more natural inflection).
 Example 2: "which gave you everything you wanted" → "שנתנה לך כל מה שרצית" instead of "שנתנה לך הכל שרצית." (Adapting to a more colloquial expression).
-Example 3: "It's an honorary position." → "זה תפקיד כבוד" instead of "זו תפקיד כבודי." (Using a more commonly spoken phrase structure).
 Example 4: "I'm really tired." → "אני ממש עייף." or "אני גמור." instead of a direct translation like "אני מאוד עייף." (Adapting to a more natural, colloquial expression in Hebrew).
 Example 5: English "I'm starving." → Hebrew "אני מת מרעב." instead of a more literal translation like "אני רעב מאוד." (Using a colloquial expression that captures the intensity of hunger in everyday speech).
 Example 6: "Let's hang out." → "בוא נתלווה." or "בוא נבלה זמן יחד." instead of a direct translation like "בוא נהיה יחד." (Choosing a phrase that more accurately reflects the casual and friendly nature of the invitation in everyday Hebrew).
@@ -249,6 +248,15 @@ Example 1: "He is a doctor" → "הוא רופא" (for male) or "היא רופא
 Example 2: "Allison, You're crazy"  → ״אליסון, את משוגעת״  (This rule assumes that <feminine name> followed by "you" means את), same applies for male names. 
 Example 3: "I saw you Mom, you did that" → "ראיתי אותך אמא, את עשית זה" inferring the use of "את" instead of "אתה" based on the word "Mom".
 Example 4: "Let me tell you something, Miss." → "תני לי לספר לך משהו גברתי" inferring the use of ״תני״ instead of ״תן״ because the sentece talks to a "Miss".  
+Example 5: "It's an honorary position." → "זה תפקיד כבוד" instead of "זו תפקיד כבודי." 
+
+- Inflection and Slang Adjustment: Adapt English phrases to their natural, colloquial Hebrew equivalents, focusing on inflection and daily language usage.
+Example 1: English "This is only half." → Hebrew "זה רק חצי." instead of "זה רק המחצית." (Applying a more natural inflection).
+Example 2: "which gave you everything you wanted" → "שנתנה לך כל מה שרצית" instead of "שנתנה לך הכל שרצית." (Adapting to a more colloquial expression).
+Example 3: "It's an honorary position." → "זה תפקיד כבוד" instead of "זו תפקיד כבודי." (Using a more commonly spoken phrase structure).
+Example 4: "I'm really tired." → "אני ממש עייף." or "אני גמור." instead of a direct translation like "אני מאוד עייף." (Adapting to a more natural, colloquial expression in Hebrew).
+Example 5: English "I'm starving." → Hebrew "אני מת מרעב." instead of a more literal translation like "אני רעב מאוד." (Using a colloquial expression that captures the intensity of hunger in everyday speech).
+Example 6: "Let's hang out." → "בוא נבלה."  instead of a direct translation like "בוא נהיה יחד." (Choosing a phrase that more accurately reflects the casual and friendly nature of the invitation in everyday Hebrew).
 
 - Idiomatic Expressions: Find Hebrew equivalents for English idioms.
 Example 1: Use of the world "Fuck" → Fuck You (לעזאזל איתך), usually use לעזאזל
@@ -262,14 +270,6 @@ Example 2: "but you were right." → ״אבל אתה צודק״ instead of "אב
 Example 3: "I'm sorry I was so hard on you before." → ״מצטער שהייתי קשה איתך קודם״ instead of ״ אני מצטער שהייתי כל כך קשה עליך קודם.״
 Example 4: "Who does she work for?" → "אצל מי היא עובדת?" instead of ״למי היא עובדת״
 Example 5: "See, it's a little tricky" → "תראה, זה טיפה טריקי" instead of ״ראה״ or "תסתכל"
-
-- Inflection and Slang Adjustment: Adapt English phrases to their natural, colloquial Hebrew equivalents, focusing on inflection and daily language usage.
-Example 1: English "This is only half." → Hebrew "זה רק חצי." instead of "זה רק המחצית." (Applying a more natural inflection).
-Example 2: "which gave you everything you wanted" → "שנתנה לך כל מה שרצית" instead of "שנתנה לך הכל שרצית." (Adapting to a more colloquial expression).
-Example 3: "It's an honorary position." → "זה תפקיד כבוד" instead of "זו תפקיד כבודי." (Using a more commonly spoken phrase structure).
-Example 4: "I'm really tired." → "אני ממש עייף." or "אני גמור." instead of a direct translation like "אני מאוד עייף." (Adapting to a more natural, colloquial expression in Hebrew).
-Example 5: English "I'm starving." → Hebrew "אני מת מרעב." instead of a more literal translation like "אני רעב מאוד." (Using a colloquial expression that captures the intensity of hunger in everyday speech).
-Example 6: "Let's hang out." → "בוא נבלה."  instead of a direct translation like "בוא נהיה יחד." (Choosing a phrase that more accurately reflects the casual and friendly nature of the invitation in everyday Hebrew).
 
 - Consistent Transliteration: Keep transliterations of names and terms consistent.
 Example 1: "John" always transliterated the same way in Hebrew.
@@ -342,3 +342,40 @@ async def backup_request(target_language, rows) -> dict[str, str]:
     ret = answer.choices[0].message.function_call.arguments
     logging.info('finished backup request with openai func', extra={'took': time.time() - t1})
     return {str(row['index']): row['translation'] for row in json_repair.loads(ret)['rows']}
+
+
+review_func = [
+    {
+        "name": "review_translations",
+        "description": """You are a proficient TV shows English to Hebrew Translator, Your Job is to review the given subtitles translation, made by your employees and fix any mistakes you find, follow the rules given to you by the user.
+You will be pay handsomely for every translation you fix.
+Your pay will be reduced for any translation mistakes you make.
+
+
+""",
+        "parameters": {
+            "type": "object",
+            "description": "mapping from row index to its translation and array of marked rows",
+            "properties": {
+                "rows": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "index": {
+                                "type": "integer",
+                                "description": "row index"
+                            },
+                            "translation": {
+                                "type": "string",
+                                "description": "translation of this row"
+                            }
+                        },
+                        "required": ['index', 'translation']
+                    }
+                }
+            },
+            "required": ['rows']
+        }
+    }
+]

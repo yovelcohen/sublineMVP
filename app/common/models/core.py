@@ -210,6 +210,10 @@ class SRTBlock(BaseModel):
     def __repr__(self):
         return f'SRT Block No. {self.index}\nContent: {self.content}'
 
+    @property
+    def is_translated(self):
+        return self.translations is not None and self.translations.content is not None
+
     @model_validator(mode='before')
     @classmethod
     def validate_fields(cls, data: dict):
@@ -348,6 +352,18 @@ class Translation(BaseCreateUpdateDocument):
     @property
     def task_id(self):
         return self.id
+
+    @property
+    def rows_missing_translation(self):
+        for row in self.subtitles:
+            if not row.is_translated:
+                yield row
+
+    @property
+    def rows_with_translation(self):
+        for row in self.subtitles:
+            if row.is_translated:
+                yield row
 
     def get_blob_path(self, project: Project, file_mime):
         return project.blob_path + f'{self.target_language}.{file_mime}'
