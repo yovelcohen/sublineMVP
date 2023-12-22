@@ -132,6 +132,10 @@ async def translate(
 ):
     t1 = time.time()
     logger.debug('starting translation request')
+    if await Translation.find(Translation.name == _name).exists():
+        st.error('Translation with this name already exists')
+        raise ValueError('Translation with this name already exists')
+
     task = Translation(target_language=_target_language, source_language='English', subtitles=[],
                        project_id=PydanticObjectId(), name=_name, main_genre=string_to_enum(main_genre, Genres),
                        age=age)
@@ -178,13 +182,19 @@ async def save_to_db(rows, df, name, last_row: SRTBlock, existing_feedback: Tran
     if not existing_feedback:
         params = dict(marked_rows=rows, total_rows=len(df), name=name, duration=last_row.end)
         try:
-            existing_feedback = TranslationFeedback(**params)
+            existing_feedback = await TranslationFeedback(**params).create()
         except CollectionWasNotInitialized as e:
             await init_db(settings, [TranslationFeedback])
-            existing_feedback = TranslationFeedback(**params)
+            existing_feedback = await TranslationFeedback(**params).create()
     else:
+        before = len(existing_feedback.marked_rows)
         existing_feedback.marked_rows = rows
-    await existing_feedback.save()
+        if not existing_feedback.duration:
+            existing_feedback.duration = last_row.end
+
+        await existing_feedback.replace()
+        logger.info(f'Updated translation feedback, amount rows before: {before}, after: {len(rows)} ')
+
     return existing_feedback
 
 
@@ -193,8 +203,8 @@ async def get_feedback_by_name(name) -> TranslationFeedback | None:
     return await TranslationFeedback.find({'name': name}).first_or_none()
 
 
-def _display_comparison_panel(name, subtitles, rows: list[SRTBlock], target_lang):
-    rows = list(rows)
+def _display_comparison_panel(name, subtitles, rows: list[SRTBlock]):
+    rows = sorted(list(rows), key=lambda x: x.index)
     last_row = rows[-1]
     labels = ['Gender Mistake', 'Time Tenses', 'Names', 'Slang', 'Prepositions',
               'Name "as is"', 'not fit in context', 'Plain Wrong Translation']
@@ -270,7 +280,6 @@ def _display_comparison_panel(name, subtitles, rows: list[SRTBlock], target_lang
 
     if st.button('Export Results'):
         blob = edited_df.to_csv(header=True)
-        download_button(name=name, srt_string1=rows_to_srt(rows=rows, translated=True, target_language=target_lang))
         st.download_button('Export', data=blob, file_name=f'{name}.csv', type='primary')
 
 
@@ -391,8 +400,6 @@ def translate_form():
             assert source_language != target_language
             submitted = st.form_submit_button("Translate")
             if submitted:
-                bar = st.progress(0, 'Parsing File...')
-                st.session_state['bar'] = bar
                 if uploaded_file.name.endswith('nfs') or uploaded_file.name.endswith('xml'):
                     st.session_state['format'] = 'xml'
                 elif uploaded_file.name.endswith('srt'):
@@ -422,7 +429,7 @@ def translate_form():
                 'Glix Translation 1': [row.translations.content for row in results.rows if
                                        row.translations is not None],
             }
-            _display_comparison_panel(name=name, subtitles=subtitles, rows=results.rows, target_lang=target_language)
+            _display_comparison_panel(name=name, subtitles=subtitles, rows=results.rows)
 
 
 def recover_form():
@@ -449,9 +456,7 @@ def recover_form():
             'Original Language': [row.content for row in results.rows],
             'Glix Translation 1': [row.translations.content for row in results.rows if row.translations is not None],
         }
-        _display_comparison_panel(name=results.translation_obj.name,
-                                  subtitles=subtitles, rows=results.rows,
-                                  target_lang=results.translation_obj.target_language)
+        _display_comparison_panel(name=results.translation_obj.name, subtitles=subtitles, rows=results.rows)
 
 
 def subtitles_viewer_from_db():
@@ -493,12 +498,14 @@ def subtitles_viewer_from_db():
         chosen_name = st.selectbox('Choose Translation', options=list(new.keys()))
         submit = st.form_submit_button('Get')
         if submit:
+            st.session_state['chosenName'] = chosen_name
             accept_form()
 
     with st.form('forma2'):
         chosen_name = st.selectbox('Update Existing Review', options=list(existing.keys()))
         submit = st.form_submit_button('Get')
         if submit:
+            st.session_state['chosenName'] = chosen_name
             accept_form()
 
     if 'subtitles' in st.session_state:
@@ -511,8 +518,7 @@ def subtitles_viewer_from_db():
             st.download_button(data=srt_string, file_name=f'{st.session_state["tName"]}.srt', label='Download SRT')
 
         _display_comparison_panel(
-            name=chosen_name, subtitles=st.session_state['subtitles'],
-            rows=st.session_state['rows'], target_lang=st.session_state['targetLang']
+            name=st.session_state['chosenName'], subtitles=st.session_state['subtitles'], rows=st.session_state['rows']
         )
 
 
