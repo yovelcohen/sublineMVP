@@ -1,8 +1,6 @@
 import asyncio
-import datetime
 import logging
 import re
-from collections import defaultdict
 from typing import cast, NoReturn
 from xml.etree import ElementTree as ET  # noqa
 
@@ -12,12 +10,10 @@ from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
 
 from common.consts import SrtString, JsonStr, XMLString, LanguageCode
-from common.models.core import SRTBlock, Translation, TranslationContent, TranslationStates
+from common.models.core import SRTBlock, Translation, TranslationContent
 from common.utils import rows_to_srt
-from common.context_vars import total_stats
 from services.llm.auditor import audit_results_via_openai
 from services.llm.translator import translate_via_openai_func
-from services.llm.revisor import review_revisions_via_openai
 from streamlit_utils import stqdm
 
 logger = logging.getLogger(__name__)
@@ -145,11 +141,12 @@ class TranslatorV1(BaseLLMTranslator):
                     translation = {k.lower(): v for k, v in translation.items()}
                     if 'hebrew' in translation:
                         translation = translation['hebrew']
+                    elif f'{row.index}_1' in translation:
+                        translation = ' '.join(translation.values())
+                    elif str(row.index) in translation:
+                        translation = translation[row.index]
                     else:
-                        if f'{row.index}_1' in translation:
-                            translation = ' '.join(translation.values())
-                        elif str(row.index) in translation:
-                            translation = translation[row.index]
+                        raise ValueError(f'Invalid translation: {translation}')
                 self._results[row.index] = translation
             else:
                 missed.append(row)
@@ -191,7 +188,12 @@ class TranslatorV1(BaseLLMTranslator):
 
     async def translate_missing(self, *, num_rows_in_chunk: int, recursion_count=1):
         """
-        fill the missing translations result recursively
+        Recursively fill the missing translations result
+
+        :param num_rows_in_chunk: number of rows to translate in each chunk
+        :param recursion_count: current recursion count
+
+        :raises RuntimeError if recursion_count exceeds 3
         """
         missing = list(self.rows_missing_translations(rows=self.rows))
         if len(missing) < 2:
@@ -199,36 +201,19 @@ class TranslatorV1(BaseLLMTranslator):
 
         recursion_count += 1
         logging.debug(
-            f'found %s missing translations result on LLM: {self.class_name()}, translating them now',
-            len(missing)
+            f'found %s missing translations result on LLM: {self.class_name()}, translating them now', len(missing)
         )
         if recursion_count == 3:
             logging.warning('failed to translate missing rows, recursion count exceeded')
             st.warning('failed to translate missing rows, recursion exceeded, stopping')
             raise RuntimeError('failed to translate missing rows, recursion exceeded')
 
-        await self._run_and_update(
-            rows=missing,
-            num_rows_in_chunk=num_rows_in_chunk
-        )
+        await self._run_and_update(rows=missing, num_rows_in_chunk=num_rows_in_chunk)
 
         return await self.translate_missing(num_rows_in_chunk=num_rows_in_chunk, recursion_count=recursion_count)
 
     def _divide_rows(self, *, rows: list[SRTBlock], num_rows_in_chunk: int) -> list[list[SRTBlock]]:
         return [rows[i:i + num_rows_in_chunk] for i in range(0, len(rows), num_rows_in_chunk)]
-
-    def _divide_rows_by_token_limit(self, *, rows, token_limit):
-        sublists, current_str, current_token_count = [[]], str(), 0
-
-        for row in rows:
-            if (current_token_count + row.num_tokens) < token_limit:
-                sublists[-1].append(repr(row))
-                current_token_count += row.num_tokens
-            else:
-                current_token_count = 0
-                sublists.append([repr(row)])
-
-        return ['\n'.join(sublist) for sublist in sublists]
 
 
 vectorizer = TfidfVectorizer()
@@ -245,41 +230,6 @@ def find_most_similar_sentence(source_sentence, sentences_list):
         return most_similar_sentence, similarity_score
     except ValueError as e:
         raise e
-
-
-class TranslationRevisor(TranslatorV1):
-    __slots__ = TranslatorV1.__slots__ + ('unmatched',)
-
-    def __init__(self, *, translation_obj: Translation, rows: list[SRTBlock] = None):
-        super().__init__(translation_obj=translation_obj, rows=rows)
-        self.unmatched = defaultdict(list)
-
-    async def _run_translation_hook(self, chunk):
-        return await review_revisions_via_openai(rows=chunk, target_language=self.target_language)
-
-    def _format_results(self, *, rows: list[SRTBlock], results: dict[str, str]):
-        """
-        attaches translation to each indexed row
-        """
-        unmatched, success = 0, 0
-        for row in rows:
-            if translation := results.get(str(row.index), None):
-                if row.translations is not None:
-                    row.translations.revision = translation
-                    success += 1
-                else:
-                    row.translations = TranslationContent(content=translation)
-                    info = {'row_index': row.index, 'row_content': row.content,
-                            'revision_translation': translation}
-                    logger.debug('Row didnt have V1 translation, assigning revision as V1',
-                                 extra=info)
-                    self.unmatched['Row didnt have V1 translation, assigning revision as V1'].append(info)
-                    unmatched += 1
-            else:
-                self.unmatched['Translation Not Found'].append({'row_index': row.index, 'row_content': row.content})
-                unmatched += 1
-
-        logger.debug(f'added {success} translations to rows, {unmatched} rows were unmatched')
 
 
 class TranslationAuditor(TranslatorV1):

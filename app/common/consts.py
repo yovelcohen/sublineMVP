@@ -4,4 +4,4 @@ XMLString = str | bytes
 LanguageCode = NewType('LanguageCode', str)
 SrtString = NewType('SrtString', str)
 JsonStr = NewType('JsonStr', str)
-Version = NewType('Version', str)
+VTTString = NewType('VTTString', str)
