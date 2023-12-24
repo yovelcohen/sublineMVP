@@ -7,12 +7,24 @@ from common.consts import XMLString, SrtString
 SUPPORTED_EXTENSIONS = [".xml", ".vtt"]
 
 
-def leading_zeros(value, digits=2):
+def leading_zeros(value: int, digits: int = 2) -> str:
+    """Prepends zeros to a number to ensure it has a specific number of digits.
+
+    
+    :param value: The number to format.
+    :param digits: The total number of digits the formatted number should have. Defaults to 2.
+
+    :returns: str: The number formatted with leading zeros.
+    """
     value = "000000" + str(value)
     return value[-digits:]
 
 
-def convert_time(raw_time):
+def convert_time(raw_time: str) -> str:
+    """Converts a raw time string into a formatted time string for subtitles.
+    :param raw_time: The raw time string to be converted.
+    :returns str: The formatted time string in "HH:MM:SS,mmm" format.
+    """
     if int(raw_time) == 0:
         return "{}:{}:{},{}".format(0, 0, 0, 0)
 
@@ -26,11 +38,10 @@ def convert_time(raw_time):
     return "{}:{}:{},{}".format(hour, minute, second, ms)
 
 
-def xml_id_display_align_before(text):
-    """
-    displayAlign="before" means the current sub will be displayed on top.
-    That is and not at bottom. We check what's the xml:id associated to it
-    to have an {\an8} position tag in the output file.
+def xml_id_display_align_before(text: str) -> str:
+    """Extracts the XML ID for subtitles that should be displayed at the top of the screen.
+    :param text: The XML text containing subtitle information.
+    :returns str: The XML ID if found, otherwise an empty string.
     """
     align_before_re = re.compile(u'<region.*tts:displayAlign=\"before\".*xml:id=\"(.*)\"/>')
     has_align_before = re.search(align_before_re, text)
@@ -39,18 +50,30 @@ def xml_id_display_align_before(text):
     return u""
 
 
-def xml_get_cursive_style_ids(text):
+def xml_get_cursive_style_ids(text: str) -> list[str]:
+    """Finds all XML IDs for styles that have italic font style in the given XML text.
+    :param text: The XML text containing styling information.
+
+    :returns list[str]: A list of XML IDs for styles with italic font style.
+    """
     style_section = re.search("<styling>(.*)</styling>", text, flags=re.DOTALL)
     if not style_section:
         return []
-    style_ids_re = re.compile(
-        '<style.* tts:fontStyle="italic".* xml:id=\"([a-zA-Z0-9_.]+)\"')
+    style_ids_re = re.compile('<style.* tts:fontStyle="italic".* xml:id=\"([a-zA-Z0-9_.]+)\"')
     return [re.search(style_ids_re, line).groups()[0]
-            for line in style_section.group().split("\n")
-            if re.search(style_ids_re, line)]
+            for line in style_section.group().split("\n") if re.search(style_ids_re, line)]
 
 
-def xml_cleanup_spans_start(span_id_re, cursive_ids, text):
+def xml_cleanup_spans_start(span_id_re: re.Pattern, cursive_ids: list[str], text: str) -> tuple[str, list[str]]:
+    """Cleans up and processes the start of span tags in XML for subtitles.
+
+    
+    :param span_id_re: The compiled regular expression to match span start tags.
+    :param cursive_ids: A list of style IDs that require italic formatting.
+    :param text: The XML text to process.
+
+    :returns tuple[str, list[str]]: The cleaned XML text and a list indicating whether each span tag corresponds to an italic style.
+    """
     has_cursive = []
     span_start_tags = re.findall(span_id_re, text)
     for s in span_start_tags:
@@ -59,7 +82,16 @@ def xml_cleanup_spans_start(span_id_re, cursive_ids, text):
     return text, has_cursive
 
 
-def xml_cleanup_spans_end(span_end_re, text, has_cursive):
+def xml_cleanup_spans_end(span_end_re: re.Pattern, text: str, has_cursive: list[str]) -> str:
+    """Cleans up and processes the end of span tags in XML for subtitles.
+
+    
+    :param span_end_re: The compiled regular expression to match span end tags.
+    :param text: The XML text to process.
+    :param has_cursive: A list indicating whether each span tag corresponds to an italic style.
+
+    :returns str: The cleaned XML text after processing span end tags.
+    """
     span_end_tags = re.findall(span_end_re, text)
     for s, cursive in zip(span_end_tags, has_cursive):
         cursive = u"</i>" if cursive else u""
@@ -67,7 +99,17 @@ def xml_cleanup_spans_end(span_end_re, text, has_cursive):
     return text
 
 
-def to_srt(text, extension):
+def to_srt(text: str, extension: str) -> str | None:
+    """Converts text from XML or VTT format to SRT format.
+
+    
+    text: The text to convert.
+    extension: The file extension (either '.xml' or '.vtt') indicating the format of the input text.
+
+    Returns:
+    Optional[str]: The converted text in SRT format, or None if the extension is not supported.
+    """
+
     if extension.lower() == ".xml":
         return xml_to_srt(text)
     if extension.lower() == ".vtt":
@@ -87,8 +129,7 @@ def vtt_to_srt(text):
     styles = get_vtt_styles(text)
     style_tag_re = re.compile(u'<c\.(.*)>(.*)</c>')
 
-    lines = []
-    current_sub_line = []
+    lines, current_sub_line = [], []
     for line in text.split("\n"):
         if current_sub_line:
             if line:
@@ -113,9 +154,8 @@ def vtt_to_srt(text):
 
 
 def get_vtt_styles(text):  # just using it for color ATM
-    styles = {}
+    styles, n = {}, 0
     lines = text.split("\n")
-    n = 0
     style_name_re = re.compile(u'::cue\(\.(.*)\).*')
     color_re = re.compile(u'.*color: (\#.*);')
     while n < len(lines):  # not efficient to go through all text, but it's ok

@@ -26,6 +26,7 @@ class TokenCountTooHigh(ValueError):
 
 MODEL_NAME = 'glix'
 
+openai_client = openai.AsyncOpenAI(api_key=settings.OPENAI_KEY)
 azure_client = openai.AsyncAzureOpenAI(
     api_key=settings.OPENAI_KEY,
     api_version="2023-12-01-preview",
@@ -48,18 +49,31 @@ def report_stats(openai_resp: CompletionUsage):
     total_stats.set(val)
 
 
-class Model(int, Enum):
-    GPT4V = 1
-    GPT4B = 2
-
-
-_CLIENTS = {Model.GPT4V: azure_client, Model.GPT4B: azure_client1}
+class Model(Enum):
+    GPT4V = (azure_client, MODEL_NAME)
+    GPT4B = (azure_client1, MODEL_NAME)
+    GPT4_32K = (openai_client, 'gpt-4-32k-0613')
 
 
 async def send_request(
         messages, seed, model: Model, max_tokens=None, top_p=None, temperature=None, num_options=None, retry_count=1,
         **kwargs
 ) -> list[Choice] | ChatCompletion | AsyncStream[ChatCompletionChunk]:
+    """
+
+    :param messages:
+    :param seed:
+    :param model:
+    :param max_tokens:
+    :param top_p:
+    :param temperature:
+    :param num_options:
+    :param retry_count:
+    :param kwargs:
+    :return:
+    """
+
+    client, model_name = model.value
     req = dict(messages=messages, seed=seed, model=MODEL_NAME, max_tokens=max_tokens)
     if 'functions' not in kwargs:
         req['response_format'] = {"type": "json_object"}
@@ -74,7 +88,6 @@ async def send_request(
     if kwargs:
         req.update(kwargs)
 
-    client = _CLIENTS[model]
     try:
         t1 = time.time()
         func_resp = await client.chat.completions.create(**req)

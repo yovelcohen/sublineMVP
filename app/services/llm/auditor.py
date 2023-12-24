@@ -203,7 +203,7 @@ async def audit_results_via_openai(rows: set[SRTBlock], target_language: str):
     msg = [get_messages(target_language=target_language, rows=chunk) for chunk in slice_dict_into_three(rows)]
     res = []
     for i, m in enumerate(msg):
-        ret = await send_request(seed=_SEED, model='best', messages=m, temperature=.2)
+        ret = await send_request(seed=_SEED, messages=m, temperature=.2)
         res.append(json_repair.loads(ret[0].message.content))
     return res
 

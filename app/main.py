@@ -306,21 +306,23 @@ async def _get_translations_df() -> list[dict]:
         return total_cost
 
     return [
-        {'name': proj.name,
-         'Amount Rows': len(proj.subtitles),
-         'State': STATES_MAP[proj.state.value],
-         'Took': get_took(proj.took),
-         'Delete': False,
-         'Amount OG Characters': sum([len(r.content) for r in proj.subtitles]),
-         'Amount Translated Characters': sum(
-             [len(r.translations.content) for r in proj.subtitles if r.translations is not None]
-         ),
-         'Amount OG Words': sum([len(r.content.split()) for r in proj.subtitles]),
-         'Amount Translated Words': sum(
-             [len(r.translations.content.split()) for r in proj.subtitles if r.translations is not None]
-         ),
-         'token_cost': get_cost(proj.tokens_cost)
-         }
+        {
+            'id': proj.id,
+            'name': proj.name,
+            'Amount Rows': len(proj.subtitles),
+            'State': STATES_MAP[proj.state.value],
+            'Took': get_took(proj.took),
+            'Delete': False,
+            'Amount OG Characters': sum([len(r.content) for r in proj.subtitles]),
+            'Amount Translated Characters': sum(
+                [len(r.translations.content) for r in proj.subtitles if r.translations is not None]
+            ),
+            'Amount OG Words': sum([len(r.content.split()) for r in proj.subtitles]),
+            'Amount Translated Words': sum(
+                [len(r.translations.content.split()) for r in proj.subtitles if r.translations is not None]
+            ),
+            'token_cost': get_cost(proj.tokens_cost)
+        }
         for proj in projs
     ]
 
@@ -381,7 +383,8 @@ def _format_number(num):
 
 
 async def _delete_docs(to_delete):
-    q = Translation.find(In(Translation.name, to_delete))
+    to_delete = list(map(lambda x: PydanticObjectId(x) if isinstance(x, str) else x, to_delete))
+    q = Translation.find(In(Translation.id, to_delete))
     ack = await q.delete()
     return ack.deleted_count
 
@@ -552,7 +555,7 @@ def view_stats():
         st.metric('Total Checked Rows', _format_number(stats.totalChecked), '-', delta_color='off')
         st.metric('Translated Characters Count', _format_number(stats.totalTranslatedCharacters))
     with col3:
-        st.metric('Total Errors Count', _format_number(total_errors), f'{stats.errorPct}%', delta_color='off')
+        st.metric('Total Errors Count (Rows)', _format_number(total_errors), f'{stats.errorPct}%', delta_color='off')
         st.metric('Original Words Count', _format_number(stats.amountOgWords))
     with col4:
         errors_pct = [err for err in df['Errors %'].to_list() if not isnan(err)]
@@ -606,17 +609,18 @@ def view_stats():
 def manage_existing():
     data = asyncio.run(_get_stats())
     data = [
-        {'name': row['name'], 'Amount Rows': row['Amount Rows'], 'Delete': row['Delete'], 'State': row['State'],
-         'Reviewed': row['Reviewed']}
+        {'ID': str(row['id']), 'name': row['name'], 'State': row['State'],
+         'Reviewed': row['Reviewed'], 'Delete': row['Delete'], 'Amount Rows': row['Amount Rows'],
+         'Amount OG Words': row['Amount OG Words'], 'Amount Translated Words': row['Amount Translated Words']}
         for row in data.translations
     ]
-    edited_df = st.data_editor(pd.DataFrame(data),
-                               column_config={'Reviewed': st.column_config.SelectboxColumn(disabled=True)},
-                               use_container_width=True)
+    df = pd.DataFrame(data)
+    edited_df = st.data_editor(df, column_config={'Reviewed': st.column_config.SelectboxColumn(disabled=True)},
+                               use_container_width=True, hide_index=True)
 
     if st.button('Delete'):
         rows = edited_df.to_dict(orient='records')
-        to_delete = [proj['name'] for proj in rows if proj['Delete'] is True]
+        to_delete = [proj['ID'] for proj in rows if proj['Delete'] is True]
         if to_delete:
             ack = asyncio.run(_delete_docs(to_delete=to_delete))
             logger.info(f'Deleted {ack} translation projects')

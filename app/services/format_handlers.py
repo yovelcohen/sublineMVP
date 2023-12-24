@@ -1,6 +1,8 @@
 import logging
 import re
+from typing import cast
 
+import orjson
 import orjson as json
 from datetime import timedelta
 from xml.etree import ElementTree as ET
@@ -174,12 +176,16 @@ class XMLHandler(BaseHandler):
         return output.to_xml(root=self.root, parent_map=self.parent_map)
 
 
+def srt_to_rows(raw_content: SrtString) -> list[SRTBlock]:
+    return [
+        SRTBlock(index=row.index, start=row.start, end=row.end, content=row.content)
+        for row in srt.parse(raw_content)
+    ]
+
+
 class SRTHandler(BaseHandler):
     def to_rows(self) -> list[SRTBlock]:
-        return [
-            SRTBlock(index=row.index, start=row.start, end=row.end, content=row.content)
-            for row in srt.parse(self.raw_content)
-        ]
+        return srt_to_rows(raw_content=self.raw_content)
 
     def parse_output(self, *, output: SubtitlesResults, video_file_path=None) -> SrtString:
         original_translation = output.to_srt()
