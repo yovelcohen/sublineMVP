@@ -49,3 +49,9 @@ def rows_to_srt(
     if target_language in ('Hebrew', 'heb', 'he'):
         ret = _correct_punctuation_alignment(ret)
     return cast(SrtString, ret)
+
+
+def chunks(li, n=200):
+    """Yield successive n-sized chunks from l."""
+    for i in range(0, len(li), n):
+        yield li[i:i + n]

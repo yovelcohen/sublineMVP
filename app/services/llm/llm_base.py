@@ -24,18 +24,18 @@ class TokenCountTooHigh(ValueError):
     pass
 
 
-MODEL_NAME = 'glix'
+MODEL_NAME, VERSION = 'glix', "2023-12-01-preview"
 
-openai_client = openai.AsyncOpenAI(api_key=settings.OPENAI_KEY)
-azure_client = openai.AsyncAzureOpenAI(
-    api_key=settings.OPENAI_KEY,
-    api_version="2023-12-01-preview",
+_openai_client = openai.AsyncOpenAI(api_key=settings.OPENAI_KEY)
+_azure_client = openai.AsyncAzureOpenAI(
+    api_key=settings.AZURE_OPENAI_KEY,
+    api_version=VERSION,
     azure_endpoint=settings.AZURE_OPENAI_ENDPOINT,
     azure_deployment=MODEL_NAME,
 )
-azure_client1 = openai.AsyncAzureOpenAI(
+_azure_client1 = openai.AsyncAzureOpenAI(
     api_key=settings.OPENAI_BACKUP_KEY,
-    api_version="2023-12-01-preview",
+    api_version=VERSION,
     azure_endpoint=settings.AZURE_OPENAI_ENDPOINT_BACKUP,
     azure_deployment=MODEL_NAME,
 )
@@ -50,27 +50,32 @@ def report_stats(openai_resp: CompletionUsage):
 
 
 class Model(Enum):
-    GPT4V = (azure_client, MODEL_NAME)
-    GPT4B = (azure_client1, MODEL_NAME)
-    GPT4_32K = (openai_client, 'gpt-4-32k-0613')
+    GPT4V = (_azure_client, MODEL_NAME)
+    GPT4B = (_azure_client1, MODEL_NAME)
+    GPT4_32K = (_openai_client, 'gpt-4-32k-0613')
 
 
 async def send_request(
-        messages, seed, model: Model, max_tokens=None, top_p=None, temperature=None, num_options=None, retry_count=1,
+        messages: list[dict[str, str]],
+        seed: int,
+        model: Model,
+        max_tokens: int | None = None,
+        top_p: float | None = None,
+        temperature: float | None = None,
+        num_options: int | None = None,
+        retry_count: int = 1,
         **kwargs
 ) -> list[Choice] | ChatCompletion | AsyncStream[ChatCompletionChunk]:
     """
-
-    :param messages:
-    :param seed:
-    :param model:
-    :param max_tokens:
-    :param top_p:
-    :param temperature:
-    :param num_options:
-    :param retry_count:
-    :param kwargs:
-    :return:
+    :param messages: list of messages to send to openai
+    :param seed: a fixed int to pass to the model. This helps make the model deterministic.
+    :param model: the model to use, one of the Model enum values
+    :param max_tokens: the maximum number of tokens to generate, None for unlimited, not including the prompt.
+    :param top_p: the cumulative probability of the most likely tokens to use.
+    :param temperature: the temperature to use, higher means more random.
+    :param num_options: the number of options to generate, only used for completion.
+    :param retry_count: the number of times to retry the request if it times out.
+    :param kwargs: additional parameters to pass to the openai request.
     """
 
     client, model_name = model.value
