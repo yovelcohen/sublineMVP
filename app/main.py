@@ -501,7 +501,7 @@ def subtitles_viewer_from_db():
     _all = {**existing, **new}
 
     def accept_form():
-        translation = _all[chosenObj]
+        translation = st.session_state['chosenObj']
         rows = sorted(list(translation.subtitles), key=lambda x: x.index)
         st.session_state['rows'] = rows
         st.session_state['targetLang'] = translation.target_language
@@ -510,7 +510,7 @@ def subtitles_viewer_from_db():
         subtitles = {
             'Time Stamp': [f'{row.start} --> {row.end}' for row in rows],
             'Original Language': [row.content for row in rows],
-            'Glix Translation 1': [row.translations.content for row in rows if row.translations is not None],
+            'Glix Translation 1': [row.translations.content for row in rows if row.translations is not None]
         }
         if rev:
             if st.session_state['format'] in ('xml', 'nfs'):
@@ -520,7 +520,6 @@ def subtitles_viewer_from_db():
             )
             subtitles['Additional Translation'] = [row.content for row in handler.to_rows() if row.content]
 
-        st.session_state['translation_obj'] = translation
         st.session_state['subtitles'] = subtitles
         st.session_state['lastRow'] = rows[-1]
 
