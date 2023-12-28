@@ -161,4 +161,4 @@ cython_debug/
 *.srt
 /srts/
 /samples/
-app/services/research/
+app/services/research/*.py

@@ -79,7 +79,8 @@ async def send_request(
     """
 
     client, model_name = model.value
-    req = dict(messages=messages, seed=seed, model=MODEL_NAME, max_tokens=max_tokens)
+
+    req = dict(messages=messages, seed=seed, model=model_name, max_tokens=max_tokens)
     if 'functions' not in kwargs:
         req['response_format'] = {"type": "json_object"}
     else:

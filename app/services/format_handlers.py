@@ -48,9 +48,9 @@ class BaseHandler:
 
     async def _run(self):
         self.translation_obj.subtitles = set(self.to_rows())
-        translator = TranslatorV1(translation_obj=self.translation_obj)
+        ret = await TranslatorV1(translation_obj=self.translation_obj)
         await self.translation_obj.save()
-        return await translator(num_rows_in_chunk=25)
+        return ret
 
     async def _recover(self):
         rows = self.translation_obj.rows_missing_translation
@@ -210,3 +210,8 @@ class VTTHandler(BaseHandler):
             SRTBlock(index=i, start=row.start)
             for i, row in enumerate(webvtt.read_buffer(self.raw_content), start=1)
         ]
+
+
+class PACHandler(BaseHandler):
+    def to_rows(self) -> list[SRTBlock]:
+        ...

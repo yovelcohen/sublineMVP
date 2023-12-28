@@ -12,20 +12,10 @@ from sklearn.metrics.pairwise import cosine_similarity
 from common.consts import SrtString, JsonStr, XMLString, LanguageCode
 from common.models.core import SRTBlock, Translation, TranslationContent
 from common.utils import rows_to_srt
-from services.llm.auditor import audit_results_via_openai
 from services.llm.translator import translate_via_openai_func
 from streamlit_utils import stqdm
 
 logger = logging.getLogger(__name__)
-
-
-async def LLM_sentence_matcher(source_sentence: str, candidates: list[str]):
-    API_URL = "https://api-inference.huggingface.co/models/sentence-transformers/all-mpnet-base-v2"
-    headers = {"Authorization": "Bearer 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"}
-    payload = {"inputs": {"source_sentence": source_sentence, "sentences": candidates}}
-    async with AsyncClient(headers=headers) as client:
-        response = await client.post(API_URL, headers=headers, json=payload)
-    return response.json()
 
 
 def pct(a, b):
@@ -79,6 +69,14 @@ class SubtitlesResults:
         raise NotImplementedError
 
 
+def method_alias(alias_name):
+    def decorator(f):
+        setattr(f, alias_name, f)
+        return f
+
+    return decorator
+
+
 class BaseLLMTranslator:
     __slots__ = 'rows', 'make_function_translation', 'failed_rows', 'sema', 'translation_obj', '_results'
 
@@ -93,25 +91,28 @@ class BaseLLMTranslator:
         self.sema = asyncio.BoundedSemaphore(15)
         self._results = dict()
 
-    def rows_missing_translations(self, rows):
-        return [row for row in rows if (row.index not in self._results) and (row.is_translated is False)]
+    @property
+    def target_language(self) -> LanguageCode:
+        return cast(LanguageCode, self.translation_obj.target_language)
 
-    def rows_with_translations(self, rows):
-        return [row for row in rows if (row.index in self._results) or (row.is_translated is True)]
+    async def __call__(self, *args, **kwargs):
+        return await self._translate(*args, **kwargs)
+
+    def __await__(self, num_rows_in_chunk: int = 30) -> SubtitlesResults:
+        return (yield from self._translate(num_rows_in_chunk=num_rows_in_chunk).__await__())
+
+    async def _translate(self, *, num_rows_in_chunk: int = 30, **kwargs):
+        raise NotImplementedError
 
     @classmethod
     def class_name(cls):
         return re.sub(r'(?<!^)(?=[A-Z])', ' ', cls.__qualname__)
 
-    @property
-    def target_language(self) -> LanguageCode:
-        return cast(LanguageCode, self.translation_obj.target_language)
+    def rows_missing_translations(self, rows):
+        return [row for row in rows if (row.index not in self._results) and (row.is_translated is False)]
 
-    async def __call__(self, num_rows_in_chunk: int = 500) -> SubtitlesResults:
-        return await self._translate(num_rows_in_chunk=num_rows_in_chunk)
-
-    async def _translate(self, *, num_rows_in_chunk: int = 75, **kwargs):
-        raise NotImplementedError
+    def rows_with_translations(self, rows):
+        return [row for row in rows if (row.index in self._results) or (row.is_translated is True)]
 
 
 class TranslatorV1(BaseLLMTranslator):
@@ -228,24 +229,3 @@ def find_most_similar_sentence(source_sentence, sentences_list):
         return most_similar_sentence, similarity_score
     except ValueError as e:
         raise e
-
-
-class TranslationAuditor(TranslatorV1):
-    def __init__(self, *, translation_obj: Translation, **kwargs):
-        kwargs['model'] = 'best'
-        super().__init__(translation_obj=translation_obj, **kwargs)
-
-    async def _run_translation_hook(self, chunk):
-        return await audit_results_via_openai(rows=set(chunk), target_language=self.target_language)
-
-    def _format_results(self, *, rows: list[SRTBlock], results: dict[str, str]):
-        for row in rows:
-            if selection := results.get(str(row.index)):
-                if selection == '1':
-                    row.translations.selected = '1'
-                elif selection == '2':
-                    row.translations.selected = '2'
-                elif isinstance(selection, str) and not selection.isdigit():
-                    row.translations.selected = selection
-                else:
-                    raise ValueError(f'Invalid selection: {selection}')

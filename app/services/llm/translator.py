@@ -91,6 +91,10 @@ Example 2: "Suggesting that our customers have a..." → Correct translation: "�
 Example 3: "The teacher's book" → "הספר של המורה" (Correct use of "של" for showing possession).
 Example 4: "In the garden" → "בגן" (Correct use of "ב" for indicating a physical location).
 Example 5: "They were grateful" → "הם הודו" instead of "הם היו מודים" (Using a more natural inflection). 
+
+- Avoidable Common Mistakes, this mapping is used to fix common mistakes that are not covered by the rules above.
+1: Inflect future tenses with "ת", for e.g: ״תראה״ instead of ״ראה״ 
+2: Usage of "like" as slang usually will be translated to ״כאילו״ instead of ״כמו״ 
 """
 
 

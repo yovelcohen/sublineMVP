@@ -18,16 +18,18 @@ from beanie import PydanticObjectId, Document
 from beanie.exceptions import CollectionWasNotInitialized
 from beanie.odm.operators.find.comparison import In
 from beanie.odm.operators.find.logical import Or
-# from matplotlib import pyplot as plt
+
 from pydantic import BaseModel, model_validator
+from streamlit.runtime.uploaded_file_manager import UploadedFile
 
 from common.consts import SrtString
 from common.models.core import Translation, SRTBlock, Ages, Genres, TranslationStates
 from common.config import settings
 from common.db import init_db
 from common.utils import rows_to_srt
+from services.convertors import xml_to_srt
 from services.recovery import recover_translation
-from services.runner import run_translation
+from services.runner import run_translation, get_handler_by_mime_type
 from services.constructor import SubtitlesResults, pct
 
 streamlit.logger.get_logger = logging.getLogger
@@ -205,7 +207,14 @@ async def get_feedback_by_name(name) -> TranslationFeedback | None:
     return await TranslationFeedback.find({'name': name}).first_or_none()
 
 
-def _display_comparison_panel(name, subtitles, rows: list[SRTBlock]):
+def _display_comparison_panel(name, subtitles: dict, rows: list[SRTBlock], revision_rows: list[SRTBlock] = None):
+    """
+    :param name: name of the translation job
+    :param subtitles: dictionary
+    :param rows: rows of subtitles from a translation job
+    :param revision_rows: list of subtitles rows from a revision translation
+    """
+
     rows = sorted(list(rows), key=lambda x: x.index)
     last_row = rows[-1]
     labels = ['Gender Mistake', 'Time Tenses', 'Names', 'Slang', 'Prepositions',
@@ -221,6 +230,9 @@ def _display_comparison_panel(name, subtitles, rows: list[SRTBlock]):
         'Error 1': select_box_col('Error 1'),
         'Error 2': select_box_col('Error 2'),
     }
+    if revision_rows:
+        config['Additional Translation'] = st.column_config.TextColumn(width='large', disabled=True)
+
     if 'Glix Translation 2' in subtitles:
         select_cols.extend(['V2 Error 1', 'V2 Error 2'])
         config.update(
@@ -312,6 +324,7 @@ async def _get_translations_df() -> list[dict]:
             'Amount Rows': len(proj.subtitles),
             'State': STATES_MAP[proj.state.value],
             'Took': get_took(proj.took),
+            'Engine Version': proj.model_version.value,
             'Delete': False,
             'Amount OG Characters': sum([len(r.content) for r in proj.subtitles]),
             'Amount Translated Characters': sum(
@@ -320,8 +333,7 @@ async def _get_translations_df() -> list[dict]:
             'Amount OG Words': sum([len(r.content.split()) for r in proj.subtitles]),
             'Amount Translated Words': sum(
                 [len(r.translations.content.split()) for r in proj.subtitles if r.translations is not None]
-            ),
-            'token_cost': get_cost(proj.tokens_cost)
+            )
         }
         for proj in projs
     ]
@@ -389,6 +401,23 @@ async def _delete_docs(to_delete):
     return ack.deleted_count
 
 
+def _parse_file_upload(uploaded_file: UploadedFile):
+    if uploaded_file.name.endswith('nfs') or uploaded_file.name.endswith('xml'):
+        st.session_state['format'] = 'xml'
+    elif uploaded_file.name.endswith('srt'):
+        st.session_state['format'] = 'srt'
+    elif uploaded_file.name.endswith('txt'):
+        st.session_state['format'] = 'qtext'
+
+    if st.session_state['format'] == 'xml':
+        st.session_state['stage'] = 1
+        string_data = uploaded_file.getvalue().decode("utf-8")
+    else:
+        st.session_state['stage'] = 1
+        string_data = uploaded_file.getvalue()
+    return string_data
+
+
 ##################### APP FUNCTIONS #####################
 def translate_form():
     if st.session_state.get('stage', 0) != 1:
@@ -405,20 +434,7 @@ def translate_form():
             assert source_language != target_language
             submitted = st.form_submit_button("Translate")
             if submitted:
-                if uploaded_file.name.endswith('nfs') or uploaded_file.name.endswith('xml'):
-                    st.session_state['format'] = 'xml'
-                elif uploaded_file.name.endswith('srt'):
-                    st.session_state['format'] = 'srt'
-                elif uploaded_file.name.endswith('txt'):
-                    st.session_state['format'] = 'qtext'
-
-                if st.session_state['format'] == 'xml':
-                    st.session_state['stage'] = 1
-                    string_data = uploaded_file.getvalue().decode("utf-8")
-                else:
-                    st.session_state['stage'] = 1
-                    string_data = uploaded_file.getvalue()
-
+                string_data = _parse_file_upload(uploaded_file)
                 asyncio.run(
                     translate(
                         _name=name, file=string_data, _target_language=target_language, age=AGES_MAP[age],
@@ -431,8 +447,8 @@ def translate_form():
             results: SubtitlesResults = st.session_state['name']
             subtitles = {
                 'Original Language': [row.content for row in results.rows],
-                'Glix Translation 1': [row.translations.content for row in results.rows if
-                                       row.translations is not None],
+                'Glix Translation 1': [row.translations.content for row in results.rows
+                                       if row.translations is not None],
             }
             _display_comparison_panel(name=name, subtitles=subtitles, rows=results.rows)
 
@@ -468,62 +484,89 @@ def subtitles_viewer_from_db():
     db, docs = asyncio.run(init_db(settings, [Translation, TranslationFeedback]))
     st.session_state['DB'] = db
 
-    existing_feedbacks = asyncio.run(TranslationFeedback.find_all().project(Projection).to_list())
+    existing_feedbacks = asyncio.run(TranslationFeedback.find_all().to_list())
     names = [d.name for d in existing_feedbacks]
     translations = asyncio.run(
         Translation.find(Or(Translation.name != None, In(Translation.name, names))).  # noqa
-        find(Translation.state == TranslationStates.DONE.value).project(Projection).to_list()
+        find(Translation.state == TranslationStates.DONE.value).to_list()
     )
+
     existing, new = dict(), dict()
     for proj in translations:
         if proj.name in names:
-            existing[proj.name] = proj.id
+            existing[proj] = proj.id
         else:
-            new[proj.name] = proj.id
+            new[proj] = proj.id
+
     _all = {**existing, **new}
 
     def accept_form():
-        chosen_id = _all[chosen_name]
-        translation = asyncio.run(Translation.get(chosen_id))
+        translation = _all[chosenObj]
         rows = sorted(list(translation.subtitles), key=lambda x: x.index)
         st.session_state['rows'] = rows
         st.session_state['targetLang'] = translation.target_language
+        rev = st.session_state.get('file', False)
+
         subtitles = {
+            'Time Stamp': [f'{row.start} --> {row.end}' for row in rows],
             'Original Language': [row.content for row in rows],
             'Glix Translation 1': [row.translations.content for row in rows if row.translations is not None],
         }
-        revs = [row.translations.revision for row in translation.subtitles if row.translations is not None]
-        if not all([r is None for r in revs]):
-            subtitles['Glix Translation 2'] = revs
-        st.session_state['tName'] = translation.name
+        if rev:
+            if st.session_state['format'] in ('xml', 'nfs'):
+                rev = xml_to_srt(rev)
+            handler = get_handler_by_mime_type(mime_type=st.session_state['format'])(
+                raw_content=rev, translation_obj=translation
+            )
+            subtitles['Additional Translation'] = [row.content for row in handler.to_rows() if row.content]
+
+        st.session_state['translation_obj'] = translation
         st.session_state['subtitles'] = subtitles
         st.session_state['lastRow'] = rows[-1]
 
+    format_func = lambda obj: f'{obj.name} (Engine Version: {obj.model_version.value})'
     with st.form('forma'):
-        chosen_name = st.selectbox('Choose Translation', options=list(new.keys()))
+        chosenObj = st.selectbox('Choose Translation', options=list(new.keys()), format_func=format_func)
+        revision = st.file_uploader('Additional Subtitles', type=['srt', 'xml', 'txt', 'nfs'])
         submit = st.form_submit_button('Get')
         if submit:
-            st.session_state['chosenName'] = chosen_name
+            st.session_state['chosenObj'] = chosenObj
+            if revision:
+                string_data = _parse_file_upload(revision)
+                st.session_state['file'] = string_data
             accept_form()
 
     with st.form('forma2'):
-        chosen_name = st.selectbox('Update Existing Review', options=list(existing.keys()))
+        chosenObj = st.selectbox('Update Existing Review', options=list(existing.keys()), format_func=format_func)
+        revision = st.file_uploader('Additional Subtitles', type=['srt', 'xml', 'txt', 'nfs'])
         submit = st.form_submit_button('Get')
         if submit:
-            st.session_state['chosenName'] = chosen_name
+            st.session_state['chosenObj'] = chosenObj
+            if revision:
+                string_data = _parse_file_upload(revision)
+                st.session_state['file'] = string_data
             accept_form()
 
     if 'subtitles' in st.session_state:
+        obj: Translation = st.session_state['chosenObj']
+        with st.sidebar:
+            info = {'Name': obj.name,
+                    'Target Language': obj.target_language,
+                    "Creation Date": obj.created_at.strftime("%H:%M %d-%m-%y"),
+                    'Engine Version': obj.model_version.value}
+            for name, val in info.items():
+                st.info(f'{name}: {val}')
+
         with st.expander("Download SRT", expanded=False):
             srt_string = rows_to_srt(
                 rows=[row for row in st.session_state['rows'] if row.translations is not None],
                 translated=True,
-                target_language=st.session_state['targetLang']
+                target_language=obj.target_language
             )
-            st.download_button(data=srt_string, file_name=f'{st.session_state["tName"]}.srt', label='Download SRT')
+            st.download_button(data=srt_string, file_name=f'{obj.name}.srt', label='Download SRT')
 
         _display_comparison_panel(
-            name=st.session_state['chosenName'], subtitles=st.session_state['subtitles'], rows=st.session_state['rows']
+            name=obj.name, subtitles=st.session_state['subtitles'], rows=st.session_state['rows']
         )
 
 
