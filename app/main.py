@@ -585,8 +585,7 @@ def view_stats():
 
     df = pd.DataFrame(data)
     df = df[['name', 'State', 'Took', 'Reviewed', 'Amount Rows', 'Amount Errors', 'Errors %',
-             'Amount OG Words', 'Amount Translated Words', 'Amount OG Characters',
-             'Amount Translated Characters', 'token_cost']]
+             'Amount OG Words', 'Amount Translated Words', 'Amount OG Characters', 'Amount Translated Characters']]
     df['Amount Errors'] = df['Amount Errors'].apply(lambda x: int(x) if not isnan(x) else x)
     df = df.round(2)
 
