@@ -169,7 +169,10 @@ async def _get_translations_stats() -> list[dict]:
         db, docs = asyncio.run(init_db(mongodb_settings, [Translation]))
         st.session_state['DB'] = db
 
-    projs: list[Translation] = await Translation.find({}, fetch_links=True).to_list()
+    translations, projects = await asyncio.gather(
+        Translation.find_all().to_list(), Project.find_all().project(NameOnlyProjection).to_list()
+    )
+    projects = {proj.id: proj.name for proj in projects}
 
     def get_took(t):
         minutes, seconds = divmod(t, 60)
@@ -177,23 +180,23 @@ async def _get_translations_stats() -> list[dict]:
 
     return [
         {
-            'id': proj.id,
-            'name': await get_name_from_proj(proj),
-            'Amount Rows': len(proj.subtitles),
-            'State': STATES_MAP[proj.state.value],
-            'Took': get_took(proj.took),
-            'Engine Version': proj.engine_version.value,
+            'id': translation.id,
+            'name': projects[translation.project.ref.id],
+            'Amount Rows': len(translation.subtitles),
+            'State': STATES_MAP[translation.state.value],
+            'Took': get_took(translation.took),
+            'Engine Version': translation.engine_version.value,
             'Delete': False,
-            'Amount OG Characters': sum([len(r.content) for r in proj.subtitles]),
+            'Amount OG Characters': sum([len(r.content) for r in translation.subtitles]),
             'Amount Translated Characters': sum(
-                [len(r.translations.selection) for r in proj.subtitles if r.translations is not None]
+                [len(r.translations.selection) for r in translation.subtitles if r.translations is not None]
             ),
-            'Amount OG Words': sum([len(r.content.split()) for r in proj.subtitles]),
+            'Amount OG Words': sum([len(r.content.split()) for r in translation.subtitles]),
             'Amount Translated Words': sum(
-                [len(r.translations.selection.split()) for r in proj.subtitles if r.translations is not None]
+                [len(r.translations.selection.split()) for r in translation.subtitles if r.translations is not None]
             )
         }
-        for proj in projs
+        for translation in translations
     ]
 
 
@@ -293,9 +296,8 @@ class NameOnlyProjection(BaseModel):
 
 
 async def get_name_from_proj(obj_: Translation):
-    if isinstance(obj_.project, Project):
-        return obj_.project.name
-    p = await Project.find(Project.id == obj_.project.ref.id).project(NameOnlyProjection).first_or_none()
+    _id = obj_.project.id if isinstance(obj_.project, Project) else obj_.project.ref.id
+    p = await Project.find(Project.id == _id).project(NameOnlyProjection).first_or_none()
     if not p:
         raise ValueError('project not found???')
     return p.name
