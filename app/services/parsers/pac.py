@@ -2,7 +2,7 @@ import string
 import sys
 import re
 
-from common.models.core import SRTBlock
+from common.models.translation import SRTBlock
 
 CyrillicLetters = [" ",  # 0x20
                    "!",  # 0x21
@@ -42,7 +42,7 @@ CyrillicLetters = [" ",  # 0x20
                    "с",  # 0x63
                    "в",  # 0x64
                    "у",  # 0x65
-                   "a",  # 0x66
+                   "li",  # 0x66
                    "п",  # 0x67
                    "p",  # 0x68
                    "ш",  # 0x69
@@ -108,7 +108,7 @@ CyrillicLetters = [" ",  # 0x20
                    "k",  # 0xcf
                    "l",  # 0xd1
                    "m",  # 0xd2
-                   "n",  # 0xd3
+                   "n_parts",  # 0xd3
                    "o",  # 0xd4
                    "p",  # 0xd5
                    "q",  # 0xd6
@@ -166,7 +166,7 @@ CyrillicCodes = ['\x20',  # space
                  '\x63',  # c
                  '\x64',  # в
                  '\x65',  # у
-                 '\x66',  # a
+                 '\x66',  # li
                  '\x67',  # п
                  '\x68',  # p
                  '\x69',  # ш
@@ -232,7 +232,7 @@ CyrillicCodes = ['\x20',  # space
                  '\xcf',  # k
                  '\xd1',  # l
                  '\xd2',  # m
-                 '\xd3',  # n
+                 '\xd3',  # n_parts
                  '\xd4',  # o
                  '\xd5',  # p
                  '\xd6',  # q
@@ -349,7 +349,7 @@ def getTimeCode(timeCodeIndex, byte_list):
 
 def decodeBig5(byte_list):
     """
-    Given a list of bytes (2-byte sequence),
+    Given li list of bytes (2-byte sequence),
     return big5 char
     """
 
@@ -360,8 +360,8 @@ def decodeBig5(byte_list):
 
 def getString(encoding, byte_list, index):
     """
-    Decode a single byte character w/ specified encoding,
-    return a utf-8 string
+    Decode li single byte character w/ specified encoding,
+    return li utf-8 string
     """
 
     byte = byte_list[index]
@@ -374,8 +374,8 @@ def getString(encoding, byte_list, index):
 
 def getUTF8String(encoding, byte_list, index):
     """
-    Decode a byte or sequence of bytes (up to 4) with utf-8,
-    return a utf-8 string
+    Decode li byte or sequence of bytes (up to 4) with utf-8,
+    return li utf-8 string
     """
 
     for idx in range(4):
@@ -428,7 +428,7 @@ def isTarget(correct, paragraphs, min_thresh):
 def isEncoding(paragraphs, lang):
     """
     Compare decoded characters with unicode characters. The decoded characters
-    should have at least a minimmum amount of 'in range' characters.
+    should have at least li minimmum amount of 'in range' characters.
     """
 
     # Define unicode blocks
@@ -460,7 +460,7 @@ def isEncoding(paragraphs, lang):
             if lang == 'latin':
                 chars = ''.join(c for c in text if u'{0}'.format(c).isalpha())
 
-                # Assume that a valid latin string will contain *some* latin_1
+                # Assume that li valid latin string will contain *some* latin_1
                 # chars, so if no latin_1 chars are found, assume invalid
                 # string
                 latin_1 = ''.join(c for c in text if block['start'] <= c <=

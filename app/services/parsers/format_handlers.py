@@ -1,33 +1,70 @@
-import logging
 import re
 from typing import cast
 
-import orjson
 import orjson as json
 from datetime import timedelta
 from xml.etree import ElementTree as ET
 import srt
-import streamlit as st
 import webvtt
 
-from common.consts import SrtString, JsonStr, XMLString, VTTString
-from common.context_vars import total_stats
-from common.models.core import SRTBlock, TranslationStates, Translation
+from common.consts import SrtString, JsonStr, XMLString
+from common.models.translation import SRTBlock, Translation
 from common.utils import rows_to_srt
-from services.constructor import SubtitlesResults, TranslatorV1
+from services.parsers.convertors import xml_to_srt
 from services.sync import sync_video_to_file
 
 
-class BaseHandler:
-    __slots__ = '_results', 'raw_content', 'translation_obj', '_config'
+class SubtitlesResults:
+    __slots__ = ('translation_obj',)
 
-    def __init__(self, *, raw_content: str | bytes | SrtString | XMLString, translation_obj: Translation):
+    def __init__(self, *, translation_obj: Translation):
+        self.translation_obj = translation_obj
+
+    @property
+    def target_language(self):
+        return self.translation_obj.target_language
+
+    @property
+    def rows(self):
+        return self.translation_obj.subtitles
+
+    def to_srt(self, *, translated: bool = True, reindex=True, start_index=1) -> SrtString:
+        return rows_to_srt(rows=self.translation_obj.subtitles, translated=translated, reindex=reindex,
+                           start_index=start_index, target_language=self.target_language)
+
+    def to_json(self) -> JsonStr:
+        return cast(JsonStr, self.translation_obj.model_dump_json())
+
+    def to_xml(self, root: ET, parent_map: dict[str, ET.Element]) -> XMLString:
+        parent_map = {k.strip(): v for k, v in parent_map.items()}
+        text_to_translation = {row.content: row.translations.content for row in self.translation_obj.subtitles}
+        for original_text, translated_text in text_to_translation.items():
+            parent_map[original_text].text = translated_text
+        xml = cast(XMLString, ET.tostring(root, encoding='utf-8'))
+        return xml.decode('utf-8')
+
+    def to_webvtt(self):
+        raise NotImplementedError
+
+
+class BaseHandler:
+    __slots__ = '_results', 'raw_content', 'translation_obj', '_config', 'version'
+
+    DEFAULT_CHUNK_SIZE: int = 10
+
+    def __init__(
+            self, *,
+            raw_content: str | bytes | SrtString | XMLString,
+            translation_obj: Translation,
+            version: 1 | 2 | 3 = 3
+    ):
         if isinstance(raw_content, bytes):
             raw_content = raw_content.decode('utf-8')
         self.raw_content = raw_content
         self.translation_obj = translation_obj
         self._results: SubtitlesResults | None = None
         self._config = self._extract_config()
+        self.version = version
 
     def _extract_config(self):
         return
@@ -42,43 +79,12 @@ class BaseHandler:
     def parse_output(self, *, output, **kwargs):
         return output
 
-    async def _set_state(self, state: TranslationStates):
-        self.translation_obj.state = state
-        await self.translation_obj.save()
-
-    async def _run(self):
-        self.translation_obj.subtitles = set(self.to_rows())
-        ret = await TranslatorV1(translation_obj=self.translation_obj)
-        await self.translation_obj.save()
-        return ret
-
-    async def _recover(self):
-        rows = self.translation_obj.rows_missing_translation
-        logging.info(f"Running in recovery mode, found {len(rows)} rows to translate")
-        st.toast(f'Running in recovery mode, found {len(rows)} rows to translate')
-        translator = TranslatorV1(translation_obj=self.translation_obj)
-        await translator.translate_missing(num_rows_in_chunk=25, force_update=True)
-        return SubtitlesResults(translation_obj=self.translation_obj)
-
-    async def run(self, recovery_mode: bool = False):
-        try:
-            await self._set_state(state=TranslationStates.IN_PROGRESS)
-            self._results = await self._recover() if recovery_mode else await self._run()
-            self._results.translation_obj.tokens_cost = total_stats.get()
-            self._results.translation_obj.state = TranslationStates.DONE
-            await self._results.translation_obj.replace()
-            return self._results
-        except Exception as e:
-            await self._set_state(state=TranslationStates.FAILED)
-            logging.error(f"Failed to run translation", exc_info=True)
-            raise e
-
     @property
     def results(self):
         return self._results
 
 
-class QTtextHandler(BaseHandler):
+class QTextHandler(BaseHandler):
     def _extract_config(self):
         config_pattern = r"\{.*?\}"
         config_lines = re.findall(config_pattern, self.raw_content)
@@ -125,8 +131,13 @@ class QTtextHandler(BaseHandler):
 
 
 class XMLHandler(BaseHandler):
-    def __init__(self, *, raw_content: str | SrtString | XMLString, translation_obj: Translation):
-        super().__init__(raw_content=raw_content, translation_obj=translation_obj)
+    def __init__(
+            self, *,
+            raw_content: str | bytes | SrtString | XMLString,
+            translation_obj: Translation,
+            version: 1 | 2 | 3 = 3
+    ):
+        super().__init__(raw_content=raw_content, translation_obj=translation_obj, version=version)
         self.elements = []
         self.root = ET.fromstring(self.raw_content)
         self.parent_map = {}
@@ -151,36 +162,20 @@ class XMLHandler(BaseHandler):
             self._extract_texts(element=child, elements=elements, parent_map=parent_map)
 
     def to_rows(self) -> list[SRTBlock]:
-        def parse_ttml_timestamp(timestamp_str):
-            if not timestamp_str:
-                return
-            milliseconds_str = timestamp_str.rstrip("t")
-            milliseconds = int(milliseconds_str)
-            return timedelta(milliseconds=milliseconds)
-
-        ids = [elem.attrib[key] for elem in self.elements for key in elem.attrib if key.endswith("id")]
-        blocks = [
-            SRTBlock(
-                content=elem.text.strip(),
-                index=pk,
-                style=elem.attrib.get("style"),
-                region=elem.attrib.get("region"),
-                start=parse_ttml_timestamp(elem.attrib.get("begin")),
-                end=parse_ttml_timestamp(elem.attrib.get("end")),
-            )
-            for pk, elem in zip(ids, self.elements)
-        ]
-        return blocks
+        # TODO: Setup PROPER XML parsing + config parsing
+        srt_string = xml_to_srt(self.raw_content)
+        return srt_to_rows(raw_content=srt_string)
 
     def parse_output(self, output: SubtitlesResults) -> XMLString:  # noqa
         return output.to_xml(root=self.root, parent_map=self.parent_map)
 
 
 def srt_to_rows(raw_content: SrtString) -> list[SRTBlock]:
-    return [
-        SRTBlock(index=row.index, start=row.start, end=row.end, content=row.content)
-        for row in srt.parse(raw_content)
-    ]
+    return sorted(
+        [SRTBlock(index=row.index, start=row.start, end=row.end, content=row.content)
+         for row in srt.parse(raw_content)],
+        key=lambda x: x.start
+    )
 
 
 class SRTHandler(BaseHandler):
@@ -207,7 +202,7 @@ class VTTHandler(BaseHandler):
 
     def to_rows(self) -> list[SRTBlock]:
         return [
-            SRTBlock(index=i, start=row.start)
+            SRTBlock(index=i, start=row.start, end=row.end, content=row.text)
             for i, row in enumerate(webvtt.read_buffer(self.raw_content), start=1)
         ]
 

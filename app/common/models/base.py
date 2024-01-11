@@ -2,7 +2,7 @@ from datetime import datetime
 
 from beanie import Document
 from beanie.odm.documents import json_schema_extra
-from pydantic import ConfigDict, Field, field_validator
+from pydantic import ConfigDict, Field
 from pydantic.alias_generators import to_camel
 
 

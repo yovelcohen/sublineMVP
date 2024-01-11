@@ -3,7 +3,7 @@ from pathlib import Path
 
 import srt
 
-from common.models.core import SRTBlock
+from common.models.translation import SRTBlock
 
 BASE_PATH = Path(__file__).resolve().parent
 

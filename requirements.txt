@@ -30,3 +30,4 @@ scipy==1.11.4
 sentencepiece==0.1.99
 mistralai==0.0.8
 webvtt-py
+streamlit-authenticator==0.2.3

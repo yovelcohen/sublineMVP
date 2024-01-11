@@ -1,36 +1,31 @@
 import asyncio
-import datetime
 import io
 import statistics
-import time
 import zipfile
 from collections import defaultdict
 from math import isnan
 
-import openai
 import pandas as pd
 import streamlit as st
 
 import logging
 import streamlit.logger
 
-from beanie import PydanticObjectId, Document
-from beanie.exceptions import CollectionWasNotInitialized
+from beanie import PydanticObjectId, Link
 from beanie.odm.operators.find.comparison import In
-from beanie.odm.operators.find.logical import Or
 
 from pydantic import BaseModel, model_validator
 from streamlit.runtime.uploaded_file_manager import UploadedFile
 
+from auth import get_authenticator
 from common.consts import SrtString
-from common.models.core import Translation, SRTBlock, Ages, Genres, TranslationStates
-from common.config import settings
+from common.models.core import Ages, Genres, Project, Client, ClientChannel
+from common.config import mongodb_settings
 from common.db import init_db
-from common.utils import rows_to_srt
-from services.convertors import xml_to_srt
-from services.recovery import recover_translation
-from services.runner import run_translation, get_handler_by_mime_type
-from services.constructor import SubtitlesResults, pct
+from common.models.translation import Translation, SRTBlock, ModelVersions
+from common.models.users import User
+from costs import costs_panel
+from new_comparsion import TranslationFeedback, new_compare
 
 streamlit.logger.get_logger = logging.getLogger
 streamlit.logger.setup_formatter = None
@@ -52,18 +47,32 @@ logging.getLogger('watchdog.observers').setLevel(logging.INFO)
 
 logger = logging.getLogger(__name__)
 
+
+def pct(a, b):
+    if a == 0 or b == 0:
+        return 0
+    return round((a / b) * 100, 2)
+
+
 st.set_page_config(layout="wide")
 
+name, authentication_status, username = get_authenticator().login('Login', 'main')
+st.session_state["authentication_status"] = authentication_status
 
-class TranslationFeedback(Document):
-    name: str = ''
-    total_rows: int
-    marked_rows: list[dict]
-    duration: datetime.timedelta | None = None
+if st.session_state["authentication_status"] == None:
+    st.warning('Please enter your username and password')
+if st.session_state["authentication_status"] == False:
+    st.error('The username or password you have entered is invalid')
 
-    @property
-    def error_pct(self):
-        return round(((len(self.marked_rows) / self.total_rows) / 100), 2)
+if not st.session_state.get('DB') and st.session_state["authentication_status"] is True:
+    logger.info('initiating DB Connection And collections')
+    db, docs = asyncio.run(
+        init_db(settings=mongodb_settings,
+                documents=[Translation, TranslationFeedback, Project, Client, ClientChannel],
+                allow_index_dropping=True)
+    )
+    st.session_state['DB'] = db
+    logger.info('Finished DB Connection And collections init process')
 
 
 class Projection(BaseModel):
@@ -80,6 +89,7 @@ class Projection(BaseModel):
 
 
 class Stats(BaseModel):
+    version: ModelVersions
     totalChecked: int
     totalFeedbacks: int
     errorsCounter: dict[str, int]
@@ -104,18 +114,12 @@ AGES_MAP = {
 STATES_MAP = {
     'p': 'Pending',
     'ip': 'In Progress',
-    'ir': 'In Revision',
-    'sa': 'Smart Audit',
-    'd': 'Done',
-    'f': 'Failed'
+    'aa': "Audio Intelligence",
+    'va': "Video Intelligence",
+    'co': 'Completed',
+    'fa': 'Failed'
 }
 TEN_K, MILLION, BILLION = 10_000, 1_000_000, 1_000_000_000
-
-if not st.session_state.get('DB'):
-    logger.info('initiating DB Connection And collections')
-    db, docs = asyncio.run(init_db(settings, [Translation, TranslationFeedback]))
-    st.session_state['DB'] = db
-    logger.info('Finished DB Connection And collections init process')
 
 
 def string_to_enum(value: str, enum_class):
@@ -123,44 +127,6 @@ def string_to_enum(value: str, enum_class):
         if enum_member.value == value or enum_member.value == value.lower():
             return enum_member
     raise ValueError(f"{value} is not a valid value for {enum_class.__name__}")
-
-
-async def translate(
-        _name: str,
-        file: str,
-        _target_language: str,
-        _format: str,
-        main_genre: str,
-        age: Ages,
-        additional_genres: list[str] = None
-):
-    t1 = time.time()
-    logger.debug('starting translation request')
-    if await Translation.find(Translation.name == _name).exists():
-        st.error('Translation with this name already exists')
-        raise ValueError('Translation with this name already exists')
-
-    task = Translation(target_language=_target_language, source_language='English', subtitles=[],
-                       project_id=PydanticObjectId(), name=_name, main_genre=string_to_enum(main_genre, Genres),
-                       age=age)
-    if additional_genres:
-        task.additional_genres = [string_to_enum(g, Genres) for g in additional_genres]
-
-    await task.save()
-    try:
-        with st.status('Translating...'):
-            ret: SubtitlesResults = await run_translation(task=task, blob_content=file, mime_type=_format)
-            st.session_state['name'] = ret
-    except openai.APITimeoutError as e:
-        st.error('Translation Failed Due To OpenAI API Timeout, Please Try Again Later')
-        await task.delete()
-        raise e
-
-    t2 = time.time()
-    task.took = t2 - t1
-    await task.save()
-    logger.debug('finished translation, took %s seconds', t2 - t1)
-    st.session_state['bar'].progress(100, text='Done!')
 
 
 def download_button(name: str, srt_string1: SrtString, srt_string2: SrtString = None):
@@ -177,44 +143,7 @@ def download_button(name: str, srt_string1: SrtString, srt_string2: SrtString = 
     st.download_button(label='Download Zip', data=zip_buffer, file_name=f'{name}_subtitles.zip', mime='application/zip')
 
 
-async def save_to_db(rows, df, name, last_row: SRTBlock, existing_feedback: TranslationFeedback | None = None):
-    def filter_row(row):
-        ke = 'V1 Error 1' if 'V1 Error 1' in row else 'Error 1'
-        return row[ke] not in ('None', None)
-
-    rows = [r for r in rows if filter_row(r)]
-    if not existing_feedback:
-        params = dict(marked_rows=rows, total_rows=len(df), name=name, duration=last_row.end)
-        try:
-            existing_feedback = await TranslationFeedback(**params).create()
-        except CollectionWasNotInitialized as e:
-            await init_db(settings, [TranslationFeedback])
-            existing_feedback = await TranslationFeedback(**params).create()
-    else:
-        before = len(existing_feedback.marked_rows)
-        existing_feedback.marked_rows = rows
-        if not existing_feedback.duration:
-            existing_feedback.duration = last_row.end
-
-        await existing_feedback.replace()
-        logger.info(f'Updated translation feedback, amount rows before: {before}, after: {len(rows)} ')
-
-    return existing_feedback
-
-
-async def get_feedback_by_name(name) -> TranslationFeedback | None:
-    await init_db(settings, [TranslationFeedback])
-    return await TranslationFeedback.find({'name': name}).first_or_none()
-
-
-def _display_comparison_panel(name, subtitles: dict, rows: list[SRTBlock], revision_rows: list[SRTBlock] = None):
-    """
-    :param name: name of the translation job
-    :param subtitles: dictionary
-    :param rows: rows of subtitles from a translation job
-    :param revision_rows: list of subtitles rows from a revision translation
-    """
-
+def _display_one_comparison_panel(rows: list[SRTBlock], revision_rows: list[SRTBlock] = None):
     rows = sorted(list(rows), key=lambda x: x.index)
     last_row = rows[-1]
     labels = ['Gender Mistake', 'Time Tenses', 'Names', 'Slang', 'Prepositions',
@@ -230,156 +159,97 @@ def _display_comparison_panel(name, subtitles: dict, rows: list[SRTBlock], revis
         'Error 1': select_box_col('Error 1'),
         'Error 2': select_box_col('Error 2'),
     }
+
     if revision_rows:
         config['Additional Translation'] = st.column_config.TextColumn(width='large', disabled=True)
-
-    if 'Glix Translation 2' in subtitles:
-        select_cols.extend(['V2 Error 1', 'V2 Error 2'])
-        config.update(
-            {'Glix Translation 2': st.column_config.TextColumn(width='large'),
-             'V2 Error 1': select_box_col('V2 Error 1'),
-             'V2 Error 2': select_box_col('V2 Error 2')}
-        )
-
-    max_length = max(len(lst) for lst in subtitles.values())
-    # Pad shorter lists with None
-    for key in subtitles:
-        subtitles[key] += [None] * (max_length - len(subtitles[key]))
-
-    existing_feedback = asyncio.run(get_feedback_by_name(name))
-    df = pd.DataFrame(subtitles)
-
-    def get_row_feedback(row, k=1):
-        if k == 1:
-            ke = 'V1 Error 1' if 'V1 Error 1' in row else 'Error 1'
-        else:
-            ke = 'V2 Error 1' if 'V2 Error 1' in row else 'Error 2'
-        return row[ke]
-
-    TRANSLATION_KEY = 'Glix Translation 1'
-    if existing_feedback:
-        logging.info(f'Found existing feedback, updating df, amount marked rows: {len(existing_feedback.marked_rows)}')
-        text_to_feedback1 = {row[TRANSLATION_KEY]: get_row_feedback(row, 1) for row in
-                             existing_feedback.marked_rows}
-        text_to_feedback2 = {row[TRANSLATION_KEY]: get_row_feedback(row, 2) for row in
-                             existing_feedback.marked_rows}
-        df['Error 1'] = df[TRANSLATION_KEY].apply(lambda x: text_to_feedback1.get(x, None))
-        df['Error 2'] = df[TRANSLATION_KEY].apply(lambda x: text_to_feedback2.get(x, None))
-        map_ = {row[TRANSLATION_KEY]: row for row in existing_feedback.marked_rows}
-    else:
-        for col in select_cols:
-            df[col] = pd.Series([None] * len(df), index=df.index)
-        map_ = {}
-
-    edited_df = st.data_editor(df, key='df', column_config=config, use_container_width=True)
-
-    if st.button('Submit'):
-        marked_rows = []
-        for row in edited_df.to_dict(orient='records'):
-            for col in select_cols:
-                if row[col] not in ('None', None):
-                    if row_to_update := map_.get(row[TRANSLATION_KEY]):
-                        row_to_update[col] = row[col]
-                        marked_rows.append(row_to_update)
-                    else:
-                        marked_rows.append(row)
-                    break
-
-        feedback_obj = asyncio.run(
-            save_to_db(marked_rows, edited_df, name=name, last_row=last_row, existing_feedback=existing_feedback)
-        )
-        st.write('Successfully Saved Results to DB!')
-        st.info(f"Num Rows: {len(edited_df)}\n Num Mistakes: {len(marked_rows)} ({feedback_obj.error_pct} %))")
-        logging.info('finished and saved subtitles review')
-
-    if st.button('Export Results'):
-        blob = edited_df.to_csv(header=True)
-        st.download_button('Export', data=blob, file_name=f'{name}.csv', type='primary')
 
 
 async def _get_translations_df() -> list[dict]:
     if not st.session_state.get('DB'):
-        db, docs = asyncio.run(init_db(settings, [Translation]))
+        db, docs = asyncio.run(init_db(mongodb_settings, [Translation]))
         st.session_state['DB'] = db
-    projs = await Translation.find(Translation.name != None).to_list()
+
+    projs: list[Translation] = await Translation.find({}, fetch_links=True).to_list()
 
     def get_took(t):
         minutes, seconds = divmod(t, 60)
         return "{:02d}:{:02d}".format(int(minutes), int(seconds))
 
-    def get_cost(usage):
-        total_cost = 0
-        for key, cost in (('prompt_tokens', 0.03), ('completion_tokens', 0.06)):
-            if key in usage:
-                num = usage[key]
-                thousands, remainder = num // 1000, num % 1000
-                total_cost += num * thousands
-                total_cost += (remainder / 1000) * cost
-        return total_cost
-
     return [
         {
             'id': proj.id,
-            'name': proj.name,
+            'name': await get_name_from_proj(proj),
             'Amount Rows': len(proj.subtitles),
             'State': STATES_MAP[proj.state.value],
             'Took': get_took(proj.took),
-            'Engine Version': proj.model_version.value,
+            'Engine Version': proj.engine_version.value,
             'Delete': False,
             'Amount OG Characters': sum([len(r.content) for r in proj.subtitles]),
             'Amount Translated Characters': sum(
-                [len(r.translations.content) for r in proj.subtitles if r.translations is not None]
+                [len(r.translations.selection) for r in proj.subtitles if r.translations is not None]
             ),
             'Amount OG Words': sum([len(r.content.split()) for r in proj.subtitles]),
             'Amount Translated Words': sum(
-                [len(r.translations.content.split()) for r in proj.subtitles if r.translations is not None]
+                [len(r.translations.selection.split()) for r in proj.subtitles if r.translations is not None]
             )
         }
         for proj in projs
     ]
 
 
-async def _get_stats():
-    await init_db(settings, [TranslationFeedback])
-    feedbacks, sum_checked_rows, all_names, by_error = [], 0, set(), defaultdict(list)
+async def _get_stats() -> list[Stats]:
+    await init_db(mongodb_settings, [TranslationFeedback])
 
-    q = TranslationFeedback.find_all()
+    q = TranslationFeedback.find_all(fetch_links=True)
     count, data = await asyncio.gather(q.count(), _get_translations_df())
-    name_to_count = {}
+    by_v = {
+        v: {'feedbacks': list(), 'sum_checked_rows': 0, 'all_names': set(),
+            'name_to_count': dict(), 'by_error': defaultdict(list)}
+        for v in set([t['Engine Version'] for t in data])
+    }
+
     async for feedback in q:
-        feedbacks.extend(feedback.marked_rows)
-        sum_checked_rows += feedback.total_rows
-        all_names.add(feedback.name)
-        name_to_count[feedback.name] = len(feedback.marked_rows)
+        version = feedback.version
+        by_v[version]['feedbacks'].extend(feedback.marked_rows)
+        by_v[version]['sum_checked_rows'] += feedback.total_rows
+        by_v[version]['all_names'].add(feedback.name)
+        by_v[version]['name_to_count'][feedback.name] = len(feedback.marked_rows)
         for row in feedback.marked_rows:
             key = 'V1 Error 1' if 'V1 Error 1' in row else 'Error 1'
             key2 = 'V2 Error 1' if 'V2 Error 1' in row else 'Error 2'
             for k in (key, key2):
                 if k in row and row[k] not in ('None', None):
                     row['Name'] = feedback.name
-                    by_error[row[k]].append(row)
+                    by_v[version]['by_error'][row[k]].append(row)
 
     for translation in data:
-        if translation['name'] in all_names and translation['State'] == 'Done':
+        version = translation['Engine Version']
+        if 'translations' not in by_v[version]:
+            by_v[version]['translations'] = list()
+        if translation['name'] in by_v[version]['all_names'] and translation['State'] == 'Done':
             translation['Reviewed'] = True
-            amount_errors = name_to_count[translation['name']]
-            translation['Amount Errors'] = int(amount_errors)
-            translation['Errors %'] = round(pct(amount_errors, translation['Amount Rows']), 1)
+            amount_errors = by_v[version]['name_to_count'][translation['name']]
         else:
             translation['Reviewed'] = False
+            amount_errors = 0
 
-    stats = Stats(
-        totalChecked=sum_checked_rows,
+        translation['Amount Errors'] = int(amount_errors)
+        translation['Errors %'] = round(pct(amount_errors, translation['Amount Rows']), 1)
+        by_v[version]['translations'].append(translation)
+
+    stats = [Stats(
+        version=v,
+        totalChecked=data['sum_checked_rows'],
         totalFeedbacks=count,
-        errorsCounter={key: len(val) for key, val in by_error.items()},
-        errors=by_error,
-        errorPct=round((len(feedbacks) / sum_checked_rows) * 100, 2),
-        totalOgCharacters=sum([row['Amount OG Characters'] for row in data]),
-        totalTranslatedCharacters=sum([row['Amount Translated Characters'] for row in data]),
-        amountOgWords=sum([row['Amount OG Words'] for row in data]),
-        amountTranslatedWords=sum([row['Amount Translated Words'] for row in data]),
-        translations=data
-    )
+        errorsCounter={key: len(val) for key, val in data['by_error'].items()},
+        errors=data['by_error'],
+        errorPct=pct(len(data['feedbacks']), data['sum_checked_rows']),
+        totalOgCharacters=sum([row['Amount OG Characters'] for row in data['translations']]),
+        totalTranslatedCharacters=sum([row['Amount Translated Characters'] for row in data['translations']]),
+        amountOgWords=sum([row['Amount OG Words'] for row in data['translations']]),
+        amountTranslatedWords=sum([row['Amount Translated Words'] for row in data['translations']]),
+        translations=data['translations']
+    ) for v, data in by_v.items()]
     return stats
 
 
@@ -418,159 +288,62 @@ def _parse_file_upload(uploaded_file: UploadedFile):
     return string_data
 
 
-##################### APP FUNCTIONS #####################
-def translate_form():
-    if st.session_state.get('stage', 0) != 1:
-        with st.form("Translate"):
-            name = st.text_input("Name")
-            uploaded_file = st.file_uploader("Upload a file", type=["srt", "xml", 'nfs', 'txt'])
-            source_language = st.selectbox("Source Language", ["English", "Hebrew", 'French', 'Arabic', 'Spanish'])
-            target_language = st.selectbox("Target Language", ["Hebrew", 'French', 'Arabic', 'Spanish'])
-            age = st.selectbox('Age', options=list(AGES_MAP.keys()), index=4)
-            genre1 = st.selectbox('Category', options=list(GENRES_MAP.keys()), key='genre1')
-            additionalGenres = st.multiselect('Optional Additional Genres', options=(GENRES_MAP.keys()),
-                                              key='genreExtra')
-
-            assert source_language != target_language
-            submitted = st.form_submit_button("Translate")
-            if submitted:
-                string_data = _parse_file_upload(uploaded_file)
-                asyncio.run(
-                    translate(
-                        _name=name, file=string_data, _target_language=target_language, age=AGES_MAP[age],
-                        main_genre=GENRES_MAP[genre1], additional_genres=[GENRES_MAP[g] for g in additionalGenres],
-                        _format=st.session_state['format']
-                    )
-                )
-
-        if st.session_state.get('name', False):
-            results: SubtitlesResults = st.session_state['name']
-            subtitles = {
-                'Original Language': [row.content for row in results.rows],
-                'Glix Translation 1': [row.translations.content for row in results.rows
-                                       if row.translations is not None],
-            }
-            _display_comparison_panel(name=name, subtitles=subtitles, rows=results.rows)
+async def get_name_from_proj(obj_: Translation):
+    if isinstance(obj_.project, Link):
+        await obj_.fetch_link(Translation.project)
+    return obj_.project.name
 
 
-def recover_form():
-    db, docs = asyncio.run(init_db(settings, [Translation, TranslationFeedback]))
-    st.session_state['DB'] = db
-
-    translations = asyncio.run(
-        Translation.find(Translation.name != None, Translation.state != TranslationStates.DONE.value).  # noqa
-        project(Projection).to_list()
-    )
-
-    name_to_id = {proj.name: proj.id for proj in translations}
-    with st.form('forma'):
-        chosen_name = st.selectbox('Choose Translation', options=list(name_to_id.keys()))
-        submit = st.form_submit_button('Get')
-        if submit:
-            chosen_id = name_to_id[chosen_name]
-            translation = asyncio.run(Translation.get(chosen_id))
-            st.session_state['name'] = asyncio.run(recover_translation(translation))
-
-    if st.session_state.get('name', False):
-        results: SubtitlesResults = st.session_state['name']
-        subtitles = {
-            'Original Language': [row.content for row in results.rows],
-            'Glix Translation 1': [row.translations.content for row in results.rows if row.translations is not None],
-        }
-        _display_comparison_panel(name=results.translation_obj.name, subtitles=subtitles, rows=results.rows)
+class NameProject(Project):
+    name: str
 
 
 def subtitles_viewer_from_db():
-    db, docs = asyncio.run(init_db(settings, [Translation, TranslationFeedback]))
+    db, docs = asyncio.run(
+        init_db(mongodb_settings, [Translation, TranslationFeedback, Project, Client, ClientChannel, User]))
     st.session_state['DB'] = db
 
     existing_feedbacks = asyncio.run(TranslationFeedback.find_all().to_list())
     names = [d.name for d in existing_feedbacks]
-    translations = asyncio.run(
-        Translation.find(Or(Translation.name != None, In(Translation.name, names))).  # noqa
-        find(Translation.state == TranslationStates.DONE.value).to_list()
-    )
+    project_names = {
+        proj.id: proj.name for proj in asyncio.run(Project.find_all().project(Projection).to_list())
+    }
 
     existing, new = dict(), dict()
-    for proj in translations:
-        if proj.name in names:
-            existing[proj] = proj.id
+    for proj_id, name in project_names.items():
+        if name in names:
+            existing[proj_id] = name
         else:
-            new[proj] = proj.id
+            new[proj_id] = name
 
-    _all = {**existing, **new}
-
-    def accept_form():
-        translation = st.session_state['chosenObj']
-        rows = sorted(list(translation.subtitles), key=lambda x: x.index)
-        st.session_state['rows'] = rows
-        st.session_state['targetLang'] = translation.target_language
-        rev = st.session_state.get('file', False)
-
-        subtitles = {
-            'Time Stamp': [f'{row.start} --> {row.end}' for row in rows],
-            'Original Language': [row.content for row in rows],
-            'Glix Translation 1': [row.translations.content for row in rows if row.translations is not None]
-        }
-        if rev:
-            if st.session_state['format'] in ('xml', 'nfs'):
-                rev = xml_to_srt(rev)
-            handler = get_handler_by_mime_type(mime_type=st.session_state['format'])(
-                raw_content=rev, translation_obj=translation
-            )
-            subtitles['Additional Translation'] = [row.content for row in handler.to_rows() if row.content]
-
-        st.session_state['subtitles'] = subtitles
-        st.session_state['lastRow'] = rows[-1]
-
-    format_func = lambda obj: f'{obj.name} (Engine Version: {obj.model_version.value})'
     with st.form('forma'):
-        chosenObj = st.selectbox('Choose Translation', options=list(new.keys()), format_func=format_func)
+        chosenObj = st.selectbox('Choose Translation', options=list(new.values()))
         revision = st.file_uploader('Additional Subtitles', type=['srt', 'xml', 'txt', 'nfs'])
         submit = st.form_submit_button('Get')
         if submit:
-            st.session_state['chosenObj'] = chosenObj
+            _id = [k for k, v in new.items() if v == chosenObj][0]
+            st.session_state['projectId'] = _id
             if revision:
                 string_data = _parse_file_upload(revision)
                 st.session_state['file'] = string_data
-            accept_form()
 
     with st.form('forma2'):
-        chosenObj = st.selectbox('Update Existing Review', options=list(existing.keys()), format_func=format_func)
+        chosenObj = st.selectbox('Update Existing Review', options=list(existing.values()))
         revision = st.file_uploader('Additional Subtitles', type=['srt', 'xml', 'txt', 'nfs'])
         submit = st.form_submit_button('Get')
         if submit:
-            st.session_state['chosenObj'] = chosenObj
+            _id = [k for k, v in existing.items() if v == chosenObj][0]
+            st.session_state['projectId'] = _id
             if revision:
                 string_data = _parse_file_upload(revision)
                 st.session_state['file'] = string_data
-            accept_form()
 
-    if 'subtitles' in st.session_state:
-        obj: Translation = st.session_state['chosenObj']
-        with st.sidebar:
-            info = {'Name': obj.name,
-                    'Target Language': obj.target_language,
-                    "Creation Date": obj.created_at.strftime("%H:%M %d-%m-%y"),
-                    'Engine Version': obj.model_version.value}
-            for name, val in info.items():
-                st.info(f'{name}: {val}')
-
-        with st.expander("Download SRT", expanded=False):
-            srt_string = rows_to_srt(
-                rows=[row for row in st.session_state['rows'] if row.translations is not None],
-                translated=True,
-                target_language=obj.target_language
-            )
-            st.download_button(data=srt_string, file_name=f'{obj.name}.srt', label='Download SRT')
-
-        _display_comparison_panel(
-            name=obj.name, subtitles=st.session_state['subtitles'], rows=st.session_state['rows']
-        )
+    if 'projectId' in st.session_state:
+        project_id: str = st.session_state['projectId']
+        asyncio.run(new_compare(project_id))
 
 
-def view_stats():
-    stats = asyncio.run(_get_stats())
+def stats_for_version(stats: Stats):
     samples = {key: pd.DataFrame(val) for key, val in stats.errors.items()}
     total_errors = sum(list(stats.errorsCounter.values()))
 
@@ -584,7 +357,7 @@ def view_stats():
         i.pop('Delete', None)
 
     df = pd.DataFrame(data)
-    df = df[['name', 'State', 'Took', 'Reviewed', 'Amount Rows', 'Amount Errors', 'Errors %',
+    df = df[['name', 'State', 'Took', 'Engine Version', 'Reviewed', 'Amount Rows', 'Amount Errors', 'Errors %',
              'Amount OG Words', 'Amount Translated Words', 'Amount OG Characters', 'Amount Translated Characters']]
     df['Amount Errors'] = df['Amount Errors'].apply(lambda x: int(x) if not isnan(x) else x)
     df = df.round(2)
@@ -629,51 +402,55 @@ def view_stats():
         display_metrics(col, error_items[start_index:end_index])
         start_index = end_index
 
-    # st.divider()
-    # fig, ax = plt.subplots()
-    # ax.pie(stats.errorsCounter.values(), labels=stats.errorsCounter.keys(), autopct='%1.1f%%')
-    # ax.axis('equal')
-    # st.pyplot(fig)
-    # st.divider()
-
     st.header('Items')
     st.dataframe(df, hide_index=True, use_container_width=True)
     st.divider()
 
     st.header('Samples')
     for k, v in samples.items():
-        with st.expander(k, expanded=False):
-            st.dataframe(v, use_container_width=True)
+        st.dataframe(v, use_container_width=True)
         st.divider()
+
+
+def view_stats():
+    stats_list = asyncio.run(_get_stats())
+
+    for stats in stats_list:
+        with st.expander(f'Version: {stats.version.value}', expanded=False):
+            stats_for_version(stats)
 
 
 def manage_existing():
     data = asyncio.run(_get_stats())
-    data = [
-        {'ID': str(row['id']), 'name': row['name'], 'State': row['State'],
-         'Reviewed': row['Reviewed'], 'Delete': row['Delete'], 'Amount Rows': row['Amount Rows'],
-         'Amount OG Words': row['Amount OG Words'], 'Amount Translated Words': row['Amount Translated Words']}
-        for row in data.translations
-    ]
-    df = pd.DataFrame(data)
-    edited_df = st.data_editor(df, column_config={'Reviewed': st.column_config.SelectboxColumn(disabled=True)},
-                               use_container_width=True, hide_index=True)
+    for stats in data:
+        data = [
+            {'ID': str(row['id']), 'name': row['name'], 'State': row['State'],
+             'Reviewed': row['Reviewed'], 'Delete': row['Delete'], 'Amount Rows': row['Amount Rows'],
+             'Amount OG Words': row['Amount OG Words'], 'Amount Translated Words': row['Amount Translated Words']}
+            for row in stats.translations
+        ]
+        df = pd.DataFrame(data)
+        edited_df = st.data_editor(df, column_config={'Reviewed': st.column_config.SelectboxColumn(disabled=True)},
+                                   use_container_width=True, hide_index=True)
 
-    if st.button('Delete'):
-        rows = edited_df.to_dict(orient='records')
-        to_delete = [proj['ID'] for proj in rows if proj['Delete'] is True]
-        if to_delete:
-            ack = asyncio.run(_delete_docs(to_delete=to_delete))
-            logger.info(f'Deleted {ack} translation projects')
-            st.success(f'Successfully Deleted {ack} Projects, Refresh Page To See Changes')
+        if st.button('Delete'):
+            rows = edited_df.to_dict(orient='records')
+            to_delete = [proj['ID'] for proj in rows if proj['Delete'] is True]
+            if to_delete:
+                ack = asyncio.run(_delete_docs(to_delete=to_delete))
+                logger.info(f'Deleted {ack} translation projects')
+                st.success(f'Successfully Deleted {ack} Projects, Refresh Page To See Changes')
+
+        st.divider()
+        st.divider()
 
 
-page_names_to_funcs = {
-    "Translate": translate_form,
-    'Subtitles Viewer': subtitles_viewer_from_db,
-    'Recover Failed Translation': recover_form,
-    'Engine Stats': view_stats,
-    'Manage Existing Translations': manage_existing
-}
-app_name = st.sidebar.selectbox("Choose app", page_names_to_funcs.keys())
-page_names_to_funcs[app_name]()
+if st.session_state["authentication_status"] is True:
+    page_names_to_funcs = {
+        'Subtitles Viewer': subtitles_viewer_from_db,
+        'Engine Stats': view_stats,
+        'Manage Existing Translations': manage_existing,
+        'Costs Breakdown': costs_panel
+    }
+    app_name = st.sidebar.selectbox("Choose app", page_names_to_funcs.keys())
+    page_names_to_funcs[app_name]()
