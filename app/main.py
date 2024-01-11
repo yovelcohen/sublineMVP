@@ -289,9 +289,13 @@ def _parse_file_upload(uploaded_file: UploadedFile):
 
 
 async def get_name_from_proj(obj_: Translation):
-    if isinstance(obj_.project, Link):
-        await obj_.fetch_link(Translation.project)
-    return obj_.project.name
+    if isinstance(obj_.project, Project):
+        project = obj_.project
+    elif isinstance(obj_.project, Link):
+        project = await obj_.project.fetch()
+    else:
+        return ''
+    return project.name
 
 
 class NameProject(Project):
