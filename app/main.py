@@ -14,7 +14,7 @@ import streamlit.logger
 from beanie import PydanticObjectId, Link
 from beanie.odm.operators.find.comparison import In
 
-from pydantic import BaseModel, model_validator
+from pydantic import BaseModel, model_validator, Field
 from streamlit.runtime.uploaded_file_manager import UploadedFile
 
 from auth import get_authenticator
@@ -292,6 +292,7 @@ def _parse_file_upload(uploaded_file: UploadedFile):
 
 
 class NameOnlyProjection(BaseModel):
+    id: PydanticObjectId = Field(..., alias='_id')
     name: str
 
 
