@@ -164,7 +164,7 @@ def _display_one_comparison_panel(rows: list[SRTBlock], revision_rows: list[SRTB
         config['Additional Translation'] = st.column_config.TextColumn(width='large', disabled=True)
 
 
-async def _get_translations_df() -> list[dict]:
+async def _get_translations_stats() -> list[dict]:
     if not st.session_state.get('DB'):
         db, docs = asyncio.run(init_db(mongodb_settings, [Translation]))
         st.session_state['DB'] = db
@@ -201,7 +201,7 @@ async def _get_stats() -> list[Stats]:
     await init_db(mongodb_settings, [TranslationFeedback])
 
     q = TranslationFeedback.find_all(fetch_links=True)
-    count, data = await asyncio.gather(q.count(), _get_translations_df())
+    count, data = await asyncio.gather(q.count(), _get_translations_stats())
     by_v = {
         v: {'feedbacks': list(), 'sum_checked_rows': 0, 'all_names': set(),
             'name_to_count': dict(), 'by_error': defaultdict(list)}
@@ -293,6 +293,8 @@ class NameOnlyProjection(BaseModel):
 
 
 async def get_name_from_proj(obj_: Translation):
+    if isinstance(obj_.project, Project):
+        return obj_.project.name
     p = await Project.find(Project.id == obj_.project.ref.id).project(NameOnlyProjection).first_or_none()
     if not p:
         raise ValueError('project not found???')
