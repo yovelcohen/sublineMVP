@@ -112,7 +112,7 @@ AGES_MAP = {
     '18+': Ages.EIGHTEEN
 }
 STATES_MAP = {
-    'p': 'Pending',
+    'pe': 'Pending',
     'ip': 'In Progress',
     'aa': "Audio Intelligence",
     'va': "Video Intelligence",
@@ -169,19 +169,25 @@ async def _get_translations_stats() -> list[dict]:
         db, docs = asyncio.run(init_db(mongodb_settings, [Translation]))
         st.session_state['DB'] = db
 
-    translations, projects = await asyncio.gather(
-        Translation.find_all().to_list(), Project.find_all().project(NameOnlyProjection).to_list()
-    )
-    projects = {proj.id: proj.name for proj in projects}
+    translations = await Translation.find_all().to_list()
 
     def get_took(t):
         minutes, seconds = divmod(t, 60)
         return "{:02d}:{:02d}".format(int(minutes), int(seconds))
 
+    async def get_name_from_proj(obj_: Translation):
+        if isinstance(obj_.project, Link):
+            project: Project = await obj_.project.fetch()
+            if isinstance(project, Link):
+                project: Project = await project.fetch()
+            return project.name
+        return obj_.project.name
+
+    translations: list[Translation]
     return [
         {
             'id': translation.id,
-            'name': projects[translation.project.ref.id],
+            'name': await get_name_from_proj(translation),
             'Amount Rows': len(translation.subtitles),
             'State': STATES_MAP[translation.state.value],
             'Took': get_took(translation.took),
@@ -320,11 +326,11 @@ def subtitles_viewer_from_db():
     }
 
     existing, new = dict(), dict()
-    for proj_id, name in project_names.items():
-        if name in names:
-            existing[proj_id] = name
+    for proj_id, _name in project_names.items():
+        if _name in names:
+            existing[proj_id] = _name
         else:
-            new[proj_id] = name
+            new[proj_id] = _name
 
     with st.form('forma'):
         chosenObj = st.selectbox('Choose Translation', options=list(new.values()))
