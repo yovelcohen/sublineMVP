@@ -293,7 +293,7 @@ class NameOnlyProjection(BaseModel):
 
 
 async def get_name_from_proj(obj_: Translation):
-    p = await Project.find(Project.id == obj_.project.id).project(NameOnlyProjection).first_or_none()
+    p = await Project.find(Project.id == obj_.project.ref.id).project(NameOnlyProjection).first_or_none()
     if not p:
         raise ValueError('project not found???')
     return p.name
