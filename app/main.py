@@ -26,7 +26,7 @@ from common.db import init_db
 from common.models.translation import Translation, SRTBlock, ModelVersions
 from common.models.users import User
 from costs import costs_panel
-from new_comparsion import TranslationFeedback, new_compare
+from new_comparsion import TranslationFeedback, new_compare, newest_ever_compare, TranslationFeedbackV2
 
 streamlit.logger.get_logger = logging.getLogger
 streamlit.logger.setup_formatter = None
@@ -69,7 +69,7 @@ if not st.session_state.get('DB') and st.session_state["authentication_status"] 
     logger.info('initiating DB Connection And collections')
     db, docs = asyncio.run(
         init_db(settings=mongodb_settings,
-                documents=[Translation, TranslationFeedback, Project, Client, ClientChannel],
+                documents=[Translation, TranslationFeedbackV2, Project, Client, ClientChannel],
                 allow_index_dropping=True)
     )
     st.session_state['DB'] = db
@@ -208,22 +208,24 @@ async def _get_translations_stats() -> list[dict]:
 
 
 async def _get_stats() -> list[Stats]:
-    await init_db(mongodb_settings, [TranslationFeedback])
+    await init_db(mongodb_settings, [TranslationFeedbackV2])
 
-    q = TranslationFeedback.find_all(fetch_links=True)
-    count, data = await asyncio.gather(q.count(), _get_translations_stats())
+    q = TranslationFeedbackV2.find_all(fetch_links=True)
+    data = await _get_translations_stats()
     by_v = {
         v: {'feedbacks': list(), 'sum_checked_rows': 0, 'all_names': set(),
-            'name_to_count': dict(), 'by_error': defaultdict(list)}
+            'name_to_count': dict(), 'by_error': defaultdict(list), 'count': 0}
         for v in set([t['Engine Version'] for t in data])
     }
 
+    # TODO: Needs to be revamped for TranslationFeedbackV2
     async for feedback in q:
         version = feedback.version
         by_v[version]['feedbacks'].extend(feedback.marked_rows)
         by_v[version]['sum_checked_rows'] += feedback.total_rows
         by_v[version]['all_names'].add(feedback.name)
         by_v[version]['name_to_count'][feedback.name] = len(feedback.marked_rows)
+        by_v[version]['count'] += 1
         for row in feedback.marked_rows:
             key = 'V1 Error 1' if 'V1 Error 1' in row else 'Error 1'
             key2 = 'V2 Error 1' if 'V2 Error 1' in row else 'Error 2'
@@ -233,6 +235,7 @@ async def _get_stats() -> list[Stats]:
                     by_v[version]['by_error'][row[k]].append(row)
 
     for translation in data:
+        # TODO: Buggy, fix
         version = translation['Engine Version']
         if 'translations' not in by_v[version]:
             by_v[version]['translations'] = list()
@@ -250,7 +253,7 @@ async def _get_stats() -> list[Stats]:
     stats = [Stats(
         version=v,
         totalChecked=data['sum_checked_rows'],
-        totalFeedbacks=count,
+        totalFeedbacks=data['count'],
         errorsCounter={key: len(val) for key, val in data['by_error'].items()},
         errors=data['by_error'],
         errorPct=pct(len(data['feedbacks']), data['sum_checked_rows']),
@@ -317,10 +320,10 @@ class NameProject(Project):
 
 def subtitles_viewer_from_db():
     db, docs = asyncio.run(
-        init_db(mongodb_settings, [Translation, TranslationFeedback, Project, Client, ClientChannel, User]))
+        init_db(mongodb_settings, [Translation, TranslationFeedbackV2, Project, Client, ClientChannel, User]))
     st.session_state['DB'] = db
 
-    existing_feedbacks = asyncio.run(TranslationFeedback.find_all().to_list())
+    existing_feedbacks = asyncio.run(TranslationFeedbackV2.find_all().to_list())
     names = [d.name for d in existing_feedbacks]
     project_names = {
         proj.id: proj.name for proj in asyncio.run(Project.find_all().project(Projection).to_list())
@@ -357,7 +360,7 @@ def subtitles_viewer_from_db():
 
     if 'projectId' in st.session_state:
         project_id: str = st.session_state['projectId']
-        asyncio.run(new_compare(project_id))
+        newest_ever_compare(project_id)
 
 
 def stats_for_version(stats: Stats):
@@ -492,6 +495,7 @@ def manage_existing():
 if st.session_state["authentication_status"] is True:
     page_names_to_funcs = {
         'Subtitles Viewer': subtitles_viewer_from_db,
+        'Subtitles Viewer V2': newest_ever_compare,
         'Engine Stats': view_stats,
         'Manage Existing Translations': manage_existing,
         'Costs Breakdown': costs_panel

@@ -1,14 +1,19 @@
 import asyncio
+import dataclasses
 import datetime
 import logging
+from collections import defaultdict
+from typing import Self, TypedDict
 
 import pandas as pd
 import streamlit as st
+import typing_extensions
 from beanie import PydanticObjectId, Document
 from beanie.exceptions import CollectionWasNotInitialized
+from docs.conf import project
 from pydantic import Field
 
-from common.config import settings, mongodb_settings
+from common.config import mongodb_settings
 from common.db import init_db
 from common.models.core import Project
 from common.models.translation import Translation, SRTBlock, ModelVersions
@@ -21,6 +26,12 @@ select_box_col = lambda label: st.column_config.SelectboxColumn(
 )
 
 
+class MarkedRow(typing_extensions.TypedDict):
+    error: str
+    original: str
+    translation: str | None
+
+
 class TranslationFeedback(Document):
     name: str = ''
     version: ModelVersions = Field(default=ModelVersions.V1, alias='engine_version')
@@ -31,6 +42,38 @@ class TranslationFeedback(Document):
     @property
     def error_pct(self):
         return round(((len(self.marked_rows) / self.total_rows) / 100), 2)
+
+
+class TranslationFeedbackV2(Document):
+    name: str
+    version: ModelVersions = Field(default=ModelVersions.V1, alias='engine_version')
+    total_rows: int
+    marked_rows: list[MarkedRow]
+    duration: datetime.timedelta | None = None
+
+    @property
+    def error_pct(self):
+        return round(((len(self.marked_rows) / self.total_rows) / 100), 2)
+
+    @classmethod
+    def migrate_v1_obj(cls, obj: TranslationFeedback) -> Self:
+        rows = []
+        for row in obj.marked_rows:
+            if 'V1 Error 1' in row:
+                k = row['V1 Error 1']
+            elif 'Error 1' in row:
+                k = row['Error 1']
+            else:
+                raise ValueError('Could not find error key in row')
+            rows.append(MarkedRow(error=k, original=row['Original Language'], translation=row['Glix Translation 1']))
+
+        return cls(
+            name=obj.name,
+            version=obj.version,
+            total_rows=obj.total_rows,
+            marked_rows=rows,
+            duration=obj.duration
+        )
 
 
 async def get_feedback_by_name(name, v=ModelVersions.V1) -> TranslationFeedback | None:
@@ -179,3 +222,95 @@ async def new_compare(project_id):
                 st.write('Successfully Saved Results to DB!')
                 st.info(f"Num Rows: {len(edited_df)}\n Num Mistakes: {len(marked_rows)} ({feedback_obj.error_pct} %))")
                 logging.info('finished and saved subtitles review')
+
+
+OriginalContent: str
+
+
+async def _newest_ever_compare(project_id):
+    project_id = PydanticObjectId(project_id)
+    version_to_translation: dict[ModelVersions, Translation] = {
+        t.engine_version: t for t in await Translation.find(Translation.project.id == project_id).to_list()  # noqa
+    }
+    first = list(version_to_translation.values())[0]
+    error_cols = list()
+    name = (await Project.get(project_id)).name
+
+    data = {
+        'Time Stamp': [f'{row.start} --> {row.end}' for row in first.subtitles],
+        'English': [row.content for row in first.subtitles]
+    }
+
+    existing_feedbacks: dict[ModelVersions, TranslationFeedbackV2] = {
+        fb.version: fb for fb in await TranslationFeedbackV2.find(TranslationFeedbackV2.name == name).to_list()
+    }
+
+    columnConfig = {
+        'English': st.column_config.TextColumn(width='large', disabled=True)
+    }
+
+    existing_errors_map: dict[OriginalContent, MarkedRow] = dict()
+    for v, t in version_to_translation.items():
+        err_key = f'{v.value} Error'
+        version_translation = [
+            row.translations.selection if row.translations is not None else None for row in t.subtitles
+        ]
+        data[v.value] = version_translation
+        columnConfig[v.value] = st.column_config.TextColumn(width='large', disabled=True)
+        error_cols.append(err_key)
+        if v in existing_feedbacks:
+            feedback = existing_feedbacks[v]
+            existing_errors_map[v] = {
+                row['original']: row for row in feedback.marked_rows
+            }
+            data[err_key] = [
+                existing_errors_map[v].get(content, None) for content in data['English']
+            ]
+        else:
+            data[err_key] = [None] * len(data['English'])
+
+    df = pd.DataFrame(data)
+    edited_df = st.data_editor(df, column_config=columnConfig, use_container_width=True)
+
+    if st.button('Submit'):
+        updates_made = 0
+        for row in edited_df.to_dict(orient='records'):
+            for col in error_cols:
+                err = row[col]
+                v = ModelVersions(col.split(' ')[0])
+                if err not in (None, 'None'):
+                    if existing_errors_map.get(v, {}).get(row['English']) is not None:
+                        existing_errors_map[v][row['English']].error = err
+                    else:
+                        existing_errors_map[v][row['English']] = MarkedRow(
+                            error=err, original=row['English'], translation=row[v.value]
+                        )
+                    updates_made += 1
+
+        for v in version_to_translation.keys():
+            if existing := existing_feedbacks.get(v):
+                existing.marked_rows = list(existing_errors_map[v].values())
+                await existing.save()
+            else:
+                await TranslationFeedbackV2(
+                    name=name,
+                    version=v,
+                    total_rows=len(edited_df),
+                    marked_rows=list(existing_errors_map[v].values())
+                ).create()
+
+        pct = round((updates_made / len(edited_df)) * 100, 2)
+        st.info(f"Num Rows: {len(edited_df)}\n Num Mistakes: {updates_made} ({pct} % of total rows))")
+        st.write('Successfully Saved Results to DB!')
+        logging.info('finished and saved subtitles review')
+
+
+def newest_ever_compare(project_id):
+    return asyncio.run(_newest_ever_compare(project_id))
+
+
+async def _migrate_feedbacks():
+    await init_db(mongodb_settings, [TranslationFeedback, TranslationFeedbackV2])
+    feedbacks = await TranslationFeedback.find().to_list()
+    objs = [TranslationFeedbackV2.migrate_v1_obj(o) for o in feedbacks]
+    await TranslationFeedbackV2.insert_many(objs)
