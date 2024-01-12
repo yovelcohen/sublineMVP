@@ -495,7 +495,6 @@ def manage_existing():
 if st.session_state["authentication_status"] is True:
     page_names_to_funcs = {
         'Subtitles Viewer': subtitles_viewer_from_db,
-        'Subtitles Viewer V2': newest_ever_compare,
         'Engine Stats': view_stats,
         'Manage Existing Translations': manage_existing,
         'Costs Breakdown': costs_panel

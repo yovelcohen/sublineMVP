@@ -76,13 +76,13 @@ class TranslationFeedbackV2(Document):
         )
 
 
-async def get_feedback_by_name(name, v=ModelVersions.V1) -> TranslationFeedback | None:
-    await init_db(mongodb_settings, [TranslationFeedback])
-    return await TranslationFeedback.find(TranslationFeedback.name == name,
-                                          TranslationFeedback.version == v.value).first_or_none()
+async def get_feedback_by_name(name, v=ModelVersions.V1) -> TranslationFeedbackV2 | None:
+    await init_db(mongodb_settings, [TranslationFeedbackV2])
+    return await TranslationFeedbackV2.find(TranslationFeedbackV2.name == name,
+                                            TranslationFeedbackV2.version == v.value).first_or_none()
 
 
-async def save_to_db(rows, df, name, last_row: SRTBlock, existing_feedback: TranslationFeedback | None = None,
+async def save_to_db(rows, df, name, last_row: SRTBlock, existing_feedback: TranslationFeedbackV2 | None = None,
                      version=ModelVersions.V1):
     def filter_row(row):
         ke = 'V1 Error 1' if 'V1 Error 1' in row else 'Error 1'
@@ -92,10 +92,10 @@ async def save_to_db(rows, df, name, last_row: SRTBlock, existing_feedback: Tran
     if not existing_feedback:
         params = dict(marked_rows=rows, total_rows=len(df), name=name, duration=last_row.end, version=version)
         try:
-            existing_feedback = await TranslationFeedback(**params).create()
+            existing_feedback = await TranslationFeedbackV2(**params).create()
         except CollectionWasNotInitialized as e:
-            await init_db(mongodb_settings, [TranslationFeedback])
-            existing_feedback = await TranslationFeedback(**params).create()
+            await init_db(mongodb_settings, [TranslationFeedbackV2])
+            existing_feedback = await TranslationFeedbackV2(**params).create()
     else:
         before = len(existing_feedback.marked_rows)
         existing_feedback.marked_rows = rows
@@ -264,10 +264,11 @@ async def _newest_ever_compare(project_id):
                 row['original']: row for row in feedback.marked_rows
             }
             data[err_key] = [
-                existing_errors_map[v].get(content, None) for content in data['English']
+                existing_errors_map[v].get(content, {}).get('error', None) for content in data['English']
             ]
         else:
             data[err_key] = [None] * len(data['English'])
+        columnConfig[err_key] = select_box_col(err_key)
 
     df = pd.DataFrame(data)
     edited_df = st.data_editor(df, column_config=columnConfig, use_container_width=True)
@@ -279,8 +280,10 @@ async def _newest_ever_compare(project_id):
                 err = row[col]
                 v = ModelVersions(col.split(' ')[0])
                 if err not in (None, 'None'):
-                    if existing_errors_map.get(v, {}).get(row['English']) is not None:
-                        existing_errors_map[v][row['English']].error = err
+                    if v not in existing_errors_map:
+                        existing_errors_map[v] = dict()
+                    if existing_errors_map[v].get(row['English']) is not None:
+                        existing_errors_map[v][row['English']]['error'] = err
                     else:
                         existing_errors_map[v][row['English']] = MarkedRow(
                             error=err, original=row['English'], translation=row[v.value]
@@ -310,7 +313,7 @@ def newest_ever_compare(project_id):
 
 
 async def _migrate_feedbacks():
-    await init_db(mongodb_settings, [TranslationFeedback, TranslationFeedbackV2])
+    await init_db(mongodb_settings, [TranslationFeedbackV2, TranslationFeedback])
     feedbacks = await TranslationFeedback.find().to_list()
     objs = [TranslationFeedbackV2.migrate_v1_obj(o) for o in feedbacks]
     await TranslationFeedbackV2.insert_many(objs)
