@@ -4,6 +4,7 @@ import statistics
 import zipfile
 from collections import defaultdict
 from math import isnan
+from typing import Literal
 
 import pandas as pd
 import streamlit as st
@@ -89,7 +90,7 @@ class Projection(BaseModel):
 
 
 class Stats(BaseModel):
-    version: ModelVersions
+    version: ModelVersions | Literal['ALL']
     totalChecked: int
     totalFeedbacks: int
     errorsCounter: dict[str, int]
@@ -129,7 +130,7 @@ def string_to_enum(value: str, enum_class):
     raise ValueError(f"{value} is not a valid value for {enum_class.__name__}")
 
 
-def download_button(name: str, srt_string1: SrtString, srt_string2: SrtString = None):
+def download_button(_name: str, srt_string1: SrtString, srt_string2: SrtString = None):
     zip_buffer = io.BytesIO()
     with zipfile.ZipFile(zip_buffer, 'a', zipfile.ZIP_DEFLATED, False) as zip_file:
         with io.BytesIO(srt_string1.encode('utf-8')) as srt1_buffer:
@@ -139,13 +140,13 @@ def download_button(name: str, srt_string1: SrtString, srt_string2: SrtString = 
                 zip_file.writestr('subtitlesV2.srt', srt2_buffer.getvalue())
 
     zip_buffer.seek(0)
-    name = name.replace(' ', '_').strip()
-    st.download_button(label='Download Zip', data=zip_buffer, file_name=f'{name}_subtitles.zip', mime='application/zip')
+    _name = _name.replace(' ', '_').strip()
+    st.download_button(label='Download Zip', data=zip_buffer, file_name=f'{_name}_subtitles.zip',
+                       mime='application/zip')
 
 
 def _display_one_comparison_panel(rows: list[SRTBlock], revision_rows: list[SRTBlock] = None):
     rows = sorted(list(rows), key=lambda x: x.index)
-    last_row = rows[-1]
     labels = ['Gender Mistake', 'Time Tenses', 'Names', 'Slang', 'Prepositions',
               'Name "as is"', 'not fit in context', 'Plain Wrong Translation']
 
@@ -430,10 +431,37 @@ def stats_for_version(stats: Stats):
 
 def view_stats():
     stats_list = asyncio.run(_get_stats())
+    translations, errorCounts, errors = list(), dict(), dict()
+    for stat in stats_list:
+        translations.extend(stat.translations)
+        for key, val in stat.errorsCounter.items():
+            if key not in errorCounts:
+                errorCounts[key] = 0
+            errorCounts[key] += val
+        for key, val in stat.errors.items():
+            if key not in errors:
+                errors[key] = list()
+            errors[key].extend(val)
 
-    for stats in stats_list:
-        with st.expander(f'Version: {stats.version.value}', expanded=False):
+    total_stats = Stats(
+        version='ALL',  # noqa
+        totalChecked=sum([s.totalChecked for s in stats_list]),
+        totalFeedbacks=sum([s.totalFeedbacks for s in stats_list]),
+        errorsCounter=errorCounts,
+        errors=errors,
+        errorPct=sum([s.errorPct for s in stats_list]),
+        totalOgCharacters=sum([s.totalOgCharacters for s in stats_list]),
+        totalTranslatedCharacters=sum([s.totalTranslatedCharacters for s in stats_list]),
+        amountOgWords=sum([s.amountOgWords for s in stats_list]),
+        amountTranslatedWords=sum([s.amountTranslatedWords for s in stats_list]),
+        translations=translations
+    )
+    tabs = st.tabs([stats.version.value.upper() for stats in stats_list] + ['Total'])
+    for tab, stats in zip(tabs[:-1], stats_list):
+        with tab:
             stats_for_version(stats)
+    with tabs[-1]:
+        stats_for_version(total_stats)
 
 
 def manage_existing():
