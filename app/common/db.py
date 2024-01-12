@@ -37,3 +37,11 @@ async def init_db(
     await init_beanie(database=db, document_models=documents, allow_index_dropping=allow_index_dropping)
     logger.info('successfully connected to mongo')
     return documents, db
+
+
+async def quickSetupUtil():
+    from app.common.config import mongodb_settings
+    from app.common.models.core import Client, ClientChannel, Project
+    from app.common.models.translation import Translation, CostRecord
+
+    await init_db(mongodb_settings, [Translation, CostRecord, CostRecord, Client, ClientChannel, Project])

@@ -65,6 +65,20 @@ async def save_to_db(rows, df, name, last_row: SRTBlock, existing_feedback: Tran
     return existing_feedback
 
 
+def get_comparison_from_translations(translations: list[Translation]):
+    by_v = {t.engine_version: t for t in translations}
+    rows = translations[0].subtitles
+    versions = 0
+    data = {
+        'Time Stamp': [f'{row.start} --> {row.end}' for row in rows],
+        'Original Language': [row.content for row in rows],
+    }
+    for version, translation in by_v.items():
+        data[version] = [row.translations.selection if row.translations is not None else None for row in rows]
+        versions += 1
+    return data, versions
+
+
 def one_panel(translation: Translation):
     rows = translation.subtitles
 
@@ -90,20 +104,35 @@ def get_row_feedback(row, k=1):
 select_cols = ['Error 1', 'Error 2']
 
 
+async def even_new_compare(project_id):
+    project_id = PydanticObjectId(project_id)
+    project = await Project.get(project_id)
+    translations = await Translation.find(Translation.project.id == project_id).to_list()  # noqa
+    data, amountVersions = get_comparison_from_translations(translations=translations)
+
+    with st.sidebar:
+        info = {'Name': project.name, 'Target Language': translations[0].target_language,
+                'Available Version': [obj.engine_version.value for obj in translations]}
+        for name, val in info.items():
+            st.info(f'{name}: {val}')
+
+    columns = st.columns(amountVersions + 2)
+
+
 async def new_compare(project_id):
     project_id = PydanticObjectId(project_id)
     project = await Project.get(project_id)
     translations = await Translation.find(Translation.project.id == project_id).to_list()  # noqa
-    dfs = [one_panel(translation) for translation in translations]
+    dfs = [one_panel(t) for t in translations]
 
     with st.sidebar:
-        info = {'Name': project.name,
-                'Target Language': translations[0].target_language,
+        info = {'Name': project.name, 'Target Language': translations[0].target_language,
                 'Available Version': [obj.engine_version.value for obj in translations]}
         for name, val in info.items():
             st.info(f'{name}: {val}')
 
     for df, version, last_row in dfs:
+        TRANSLATION_KEY = 'Glix Translation 1'
         with st.expander(expanded=False, label=f'Engine Version: {version}'):
             config = {
                 'Original Language': st.column_config.TextColumn(width='large'),
@@ -111,11 +140,11 @@ async def new_compare(project_id):
                 'Error 1': select_box_col('Error 1'),
                 'Error 2': select_box_col('Error 2'),
             }
-            existing_feedback = await get_feedback_by_name(project.name)
-            if version == ModelVersions.V1 and existing_feedback is not None:
-                TRANSLATION_KEY = 'Glix Translation 1'
+            existing_feedback = await get_feedback_by_name(project.name, v=version)
+            if existing_feedback is not None:
                 logging.info(
-                    f'Found existing feedback, updating df, amount marked rows: {len(existing_feedback.marked_rows)}')
+                    f'Found existing feedback, updating df, amount marked rows: {len(existing_feedback.marked_rows)}'
+                )
                 text_to_feedback1 = {row[TRANSLATION_KEY]: get_row_feedback(row, 1) for row in
                                      existing_feedback.marked_rows}
                 text_to_feedback2 = {row[TRANSLATION_KEY]: get_row_feedback(row, 2) for row in
