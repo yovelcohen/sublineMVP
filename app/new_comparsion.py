@@ -10,7 +10,6 @@ import streamlit as st
 import typing_extensions
 from beanie import PydanticObjectId, Document
 from beanie.exceptions import CollectionWasNotInitialized
-from docs.conf import project
 from pydantic import Field
 
 from common.config import mongodb_settings
