@@ -145,6 +145,41 @@ async def construct_comparison_df(project_name, version_to_translation, revision
     return df, error_cols, columnConfig, existing_errors_map, existing_feedbacks
 
 
+async def _update_results(
+        project_name, edited_df, error_cols, existing_errors_map, existing_feedbacks, version_to_translation
+):
+    updates_made = dict()
+    for row in edited_df.to_dict(orient='records'):
+        for col in error_cols:
+            err = row[col]
+            v = ModelVersions(col.split(' ')[0])
+            if err not in (None, 'None'):
+                if v not in existing_errors_map:
+                    existing_errors_map[v] = dict()
+                if existing_errors_map[v].get(row['English']) is not None:
+                    existing_errors_map[v][row['English']]['error'] = err
+                else:
+                    existing_errors_map[v][row['English']] = MarkedRow(
+                        error=err, original=row['English'], translation=row[v.value]
+                    )
+                if v not in updates_made:
+                    updates_made[v] = 0
+                updates_made[v] += 1
+
+    for v in version_to_translation.keys():
+        if existing := existing_feedbacks.get(v):
+            existing.marked_rows = list(existing_errors_map[v].values())
+            await existing.save()
+        else:
+            await TranslationFeedbackV2(
+                name=project_name,
+                version=v,
+                total_rows=len(edited_df),
+                marked_rows=list(existing_errors_map[v].values())
+            ).create()
+    return updates_made
+
+
 async def _newest_ever_compare(project_id):
     project_id = PydanticObjectId(project_id)
     version_to_translation: dict[ModelVersions, Translation] = {
@@ -164,44 +199,19 @@ async def _newest_ever_compare(project_id):
         pass
 
     if st.button('Submit'):
-        updates_made = dict()
-        for row in edited_df.to_dict(orient='records'):
-            for col in error_cols:
-                err = row[col]
-                v = ModelVersions(col.split(' ')[0])
-                if err not in (None, 'None'):
-                    if v not in existing_errors_map:
-                        existing_errors_map[v] = dict()
-                    if existing_errors_map[v].get(row['English']) is not None:
-                        existing_errors_map[v][row['English']]['error'] = err
-                    else:
-                        existing_errors_map[v][row['English']] = MarkedRow(
-                            error=err, original=row['English'], translation=row[v.value]
-                        )
-                    if v not in updates_made:
-                        updates_made[v] = 0
-                    updates_made[v] += 1
-
-        for v in version_to_translation.keys():
-            if existing := existing_feedbacks.get(v):
-                existing.marked_rows = list(existing_errors_map[v].values())
-                await existing.save()
-            else:
-                await TranslationFeedbackV2(
-                    name=project_name,
-                    version=v,
-                    total_rows=len(edited_df),
-                    marked_rows=list(existing_errors_map[v].values())
-                ).create()
-
+        updates_made = await _update_results(
+            project_name=project_name, edited_df=edited_df, error_cols=error_cols,
+            existing_errors_map=existing_errors_map, existing_feedbacks=existing_feedbacks,
+            version_to_translation=version_to_translation
+        )
         st.info(f"Num Rows: {len(edited_df)}")
         for v, amount in updates_made.items():
             st.info(f"Num Mistakes {v.value}: {amount} ({pct(amount, len(edited_df))} %)")
+
         st.write('Successfully Saved Results to DB!')
         logging.info('finished and saved subtitles review')
         for v, translation in version_to_translation.items():
             srt = rows_to_srt(rows=translation.subtitles, target_language=translation.target_language)
-
             st.download_button(
                 label=f'Download {v.value} SRT', data=srt,
                 file_name=f'{project_name}_{translation.target_language}_{v.value}.srt'

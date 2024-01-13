@@ -6,7 +6,7 @@ credentials:
       password: $2b$12$bjpAtX5Rv8uL9.PxQ18M9eI9s8kBGWOfVO/sgsuuKSDSykdp2BsA. # 1-8
 cookie:
   expiry_days: 30
-  key: asdklnq # Must be string
+  key: glix
   name: cook
 preauthorized:
   emails:
