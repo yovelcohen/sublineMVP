@@ -227,6 +227,12 @@ async def new_compare(project_id):
 OriginalContent: str
 
 
+def pct(a, b):
+    if a == 0 or b == 0:
+        return 0
+    return round((a / b) * 100, 2)
+
+
 async def _newest_ever_compare(project_id):
     project_id = PydanticObjectId(project_id)
     version_to_translation: dict[ModelVersions, Translation] = {
@@ -234,7 +240,16 @@ async def _newest_ever_compare(project_id):
     }
     first = list(version_to_translation.values())[0]
     error_cols = list()
-    name = (await Project.get(project_id)).name
+    project_name = (await Project.get(project_id)).name
+
+    with st.sidebar:
+        info = {
+            'Name': project_name,
+            'Target Language': first.target_language,
+            'Available Version': ', '.join([v.value for v in version_to_translation.keys()])
+        }
+        for name, val in info.items():
+            st.info(f'{name}: {val}')
 
     data = {
         'Time Stamp': [f'{row.start} --> {row.end}' for row in first.subtitles],
@@ -242,7 +257,7 @@ async def _newest_ever_compare(project_id):
     }
 
     existing_feedbacks: dict[ModelVersions, TranslationFeedbackV2] = {
-        fb.version: fb for fb in await TranslationFeedbackV2.find(TranslationFeedbackV2.name == name).to_list()
+        fb.version: fb for fb in await TranslationFeedbackV2.find(TranslationFeedbackV2.name == project_name).to_list()
     }
 
     columnConfig = {
@@ -267,14 +282,21 @@ async def _newest_ever_compare(project_id):
                 existing_errors_map[v].get(content, {}).get('error', None) for content in data['English']
             ]
         else:
-            data[err_key] = [None] * len(data['English'])
+            data[err_key] = [None] * len(data[v.value])
         columnConfig[err_key] = select_box_col(err_key)
 
-    df = pd.DataFrame(data)
+    maxlen = max([len(v) for v in data.values()])
+    for k, v in data.items():
+        if len(v) < maxlen:
+            data[k] = v + ([None] * (maxlen - len(v)))
+    try:
+        df = pd.DataFrame(data)
+    except ValueError as e:
+        raise e
     edited_df = st.data_editor(df, column_config=columnConfig, use_container_width=True)
 
     if st.button('Submit'):
-        updates_made = 0
+        updates_made = dict()
         for row in edited_df.to_dict(orient='records'):
             for col in error_cols:
                 err = row[col]
@@ -288,7 +310,9 @@ async def _newest_ever_compare(project_id):
                         existing_errors_map[v][row['English']] = MarkedRow(
                             error=err, original=row['English'], translation=row[v.value]
                         )
-                    updates_made += 1
+                    if v not in updates_made:
+                        updates_made[v] = 0
+                    updates_made[v] += 1
 
         for v in version_to_translation.keys():
             if existing := existing_feedbacks.get(v):
@@ -296,14 +320,15 @@ async def _newest_ever_compare(project_id):
                 await existing.save()
             else:
                 await TranslationFeedbackV2(
-                    name=name,
+                    name=project_name,
                     version=v,
                     total_rows=len(edited_df),
                     marked_rows=list(existing_errors_map[v].values())
                 ).create()
 
-        pct = round((updates_made / len(edited_df)) * 100, 2)
-        st.info(f"Num Rows: {len(edited_df)}\n Num Mistakes: {updates_made} ({pct} % of total rows))")
+        st.info(f"Num Rows: {len(edited_df)}")
+        for v, amount in updates_made.items():
+            st.info(f"Num Mistakes {v.value}: {amount} ({pct(amount, len(edited_df))} %)")
         st.write('Successfully Saved Results to DB!')
         logging.info('finished and saved subtitles review')
 
