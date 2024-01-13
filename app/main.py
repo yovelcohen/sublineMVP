@@ -26,7 +26,7 @@ from common.db import init_db
 from common.models.translation import Translation, SRTBlock, ModelVersions
 from common.models.users import User
 from costs import costs_panel
-from new_comparsion import TranslationFeedback, new_compare, newest_ever_compare, TranslationFeedbackV2
+from new_comparsion import newest_ever_compare, TranslationFeedbackV2
 
 streamlit.logger.get_logger = logging.getLogger
 streamlit.logger.setup_formatter = None

@@ -266,6 +266,7 @@ class ModelVersions(str, Enum):
     V1 = 'v1'
     V2 = 'v2'
     V3 = 'v3'
+    V31 = 'v3.0.1'
 
 
 class Translation(BaseCreateUpdateDocument):
