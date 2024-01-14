@@ -169,16 +169,20 @@ class Project(Document):
         return self.client.id  # noqa
 
     @property
-    def base_blob_path(self) -> Path:
-        base = f'{self.client_id}/{self.type}/{self.name}/'
+    def qualifying_name(self) -> str:
+        base = self.name
         if self.type == ProjectTypes.SERIES:
-            base += f's{self.season}e{self.episode}/'
-        return Path(base)
+            base += f' S{self.season}E{self.episode}'
+        return base
+
+    @property
+    def base_blob_path(self) -> Path:
+        return Path(str(self.id))
 
     @property
     def video_blob_path(self) -> Path:
-        return Path(self.base_blob_path) / 'video' / f'video.{self.mime_type}'
+        return self.base_blob_path / 'video' / f'video.{self.mime_type}'
 
     @property
     def audio_blob_path(self) -> Path:
-        return Path(self.base_blob_path) / 'audio' / 'audio.wav'
+        return self.base_blob_path / 'audio' / 'audio.wav'

@@ -1,29 +1,25 @@
 import asyncio
-import dataclasses
 import datetime
 import logging
-from collections import defaultdict
-from typing import Self, TypedDict
+from typing import Self
 
 import pandas as pd
 import streamlit as st
 import typing_extensions
 from beanie import PydanticObjectId, Document
-from beanie.exceptions import CollectionWasNotInitialized
 from pydantic import Field
 
 from common.config import mongodb_settings
 from common.db import init_db
 from common.models.core import Project
-from common.models.translation import Translation, SRTBlock, ModelVersions, MULTI_MODAL_MODELS, TranslationSuggestions
+from common.models.translation import Translation, ModelVersions, MULTI_MODAL_MODELS
 from common.utils import rows_to_srt
 
-labels = ['Gender Mistake', 'Time Tenses', 'Names', 'Slang', 'Prepositions',
-          'Name "as is"', 'not fit in context', 'Plain Wrong Translation']
 
-select_box_col = lambda label: st.column_config.SelectboxColumn(
-    width='medium', label=label, required=False, options=labels
-)
+def SelectBoxColumn(label, labels):
+    return st.column_config.SelectboxColumn(
+        width='medium', label=label, required=False, options=labels
+    )
 
 
 class MarkedRow(typing_extensions.TypedDict):
@@ -95,8 +91,15 @@ def _show_sidebar(project_name, target_language, available_versions):
         for name, val in info.items():
             st.info(f'{name}: {val}')
 
+        if any([v in MULTI_MODAL_MODELS for v in available_versions]):
+            st.divider()
+            st.info(
+                'Additional Variations Segment: This translation has a > v3 version, those contain several variations for each row. this tab will show you those.'
+                'Green Marked Rows are the selected variation for each row.'
+            )
 
-async def construct_comparison_df(project_name, version_to_translation, revision=False):
+
+async def construct_comparison_df(project_name, version_to_translation):
     first = list(version_to_translation.values())[0]
     error_cols = list()
     data = {
@@ -113,15 +116,18 @@ async def construct_comparison_df(project_name, version_to_translation, revision
     }
 
     existing_errors_map: dict[OriginalContent, MarkedRow] = dict()
+    labels = ['Gender Mistake', 'Time Tenses', 'Names', 'Slang', 'Prepositions',
+              'Name "as is"', 'not fit in context', 'Plain Wrong Translation']
     for v, t in version_to_translation.items():
         err_key = f'{v.value} Error'
-        columnConfig[err_key] = select_box_col(err_key)
+        columnConfig[err_key] = SelectBoxColumn(err_key, labels)
         version_translation = [
             row.translations.selection if row.translations is not None else None for row in t.subtitles
         ]
         data[v.value] = version_translation
         columnConfig[v.value] = st.column_config.TextColumn(width='large', disabled=True)
         error_cols.append(err_key)
+
         if v in existing_feedbacks:
             feedback = existing_feedbacks[v]
             existing_errors_map[v] = {
@@ -137,11 +143,8 @@ async def construct_comparison_df(project_name, version_to_translation, revision
     for k, v in data.items():
         if len(v) < maxlen:
             data[k] = v + ([None] * (maxlen - len(v)))
-    try:
-        df = pd.DataFrame(data)
-    except ValueError as e:
-        raise e
 
+    df = pd.DataFrame(data)
     return df, error_cols, columnConfig, existing_errors_map, existing_feedbacks
 
 
@@ -181,58 +184,57 @@ async def _update_results(
 
 
 def _display_additional_variations(version_to_translation):
-    with st.expander(label='Additional Variations', expanded=False):
-        # TODO: Add explaining on sidebar
-        for v, t in version_to_translation.items():
-            if v in MULTI_MODAL_MODELS:
-                st.subheader(f'{v.value} Variations')
-                available_versions = max(
-                    [k.translations.available_versions() for k in t.subtitles if k.translations is not None],
-                    key=lambda x: len(x)
-                )
+    if any([v in MULTI_MODAL_MODELS for v in version_to_translation.keys()]):
+        st.divider()
+        with st.expander(label='Additional Variations', expanded=False):
+            # TODO: Add explaining on sidebar
+            for v, t in version_to_translation.items():
+                if v in MULTI_MODAL_MODELS:
+                    st.subheader(f'{v.value} Variations')
+                    available_versions = max(
+                        [k.translations.available_versions() for k in t.subtitles if k.translations is not None],
+                        key=lambda x: len(x)
+                    )
 
-                data = {
-                    'Time Stamp': [f'{row.start} --> {row.end}' for row in t.subtitles],
-                    'English': [row.content for row in t.subtitles],
-                    **{v: [] for v in available_versions}
-                }
+                    data = {
+                        'Time Stamp': [f'{row.start} --> {row.end}' for row in t.subtitles],
+                        'English': [row.content for row in t.subtitles],
+                        **{v: [] for v in available_versions}
+                    }
 
-                def addNoneRow():
-                    for r in available_versions:
-                        data[r].append(None)
+                    def addNoneRow():
+                        for r in available_versions:
+                            data[r].append(None)
 
-                for row in t.subtitles:
-                    if row.translations is not None:
-                        for rev in available_versions:
-                            row_versions = row.translations.available_versions()
-                            if rev in row_versions:
-                                raw_string = row.translations.get_suggestion(rev)
-                                if row.translations.selection == raw_string:
-                                    raw_string = f':: {raw_string}'
-                                data[rev].append(raw_string)
-                            else:
-                                data[rev].append(None)
-                    else:
-                        addNoneRow()
+                    for row in t.subtitles:
+                        if row.translations is not None:
+                            for rev in available_versions:
+                                row_versions = row.translations.available_versions()
+                                if rev in row_versions:
+                                    raw_string = row.translations.get_suggestion(rev)
+                                    if row.translations.selection == raw_string:
+                                        raw_string = f':: {raw_string}'
+                                    data[rev].append(raw_string)
+                                else:
+                                    data[rev].append(None)
+                        else:
+                            addNoneRow()
+                    max_len = max([len(v) for v in data.values()])
+                    data['Correct'] = [None] * max_len
+                    df = pd.DataFrame(data)
 
-                df = pd.DataFrame(data)
+                    def highlight_green(cell):
+                        if isinstance(cell, str) and cell.startswith(':: '):
+                            return 'background-color: green'
+                        return ''
 
-                def highlight_green(cell):
-                    if isinstance(cell, str) and cell.startswith(':: '):
-                        return 'background-color: green'
-                    return ''
-
-                styled = df.style.applymap(highlight_green)
-
-                # def clean_marker(cell):
-                #     if isinstance(cell, str) and ':selected_' in cell:
-                #         return cell.replace(':selected_', '')
-                #     return cell
-                #
-                # for col in df.columns:
-                #     df[col] = df[col].apply(clean_marker)
-
-                st.dataframe(styled)
+                    styled = df.style.applymap(highlight_green)
+                    conf = {
+                        **{col: st.column_config.TextColumn(width='large', disabled=True)
+                           for col in available_versions},
+                        **{'Correct': SelectBoxColumn('Correct', ['Yes', 'No'])}
+                    }
+                    edited_df = st.data_editor(styled, use_container_width=True, column_config=conf)
 
 
 async def _newest_ever_compare(project_id):
@@ -245,6 +247,7 @@ async def _newest_ever_compare(project_id):
     project_name = (await Project.get(project_id)).name
 
     _show_sidebar(project_name, first.target_language, version_to_translation.keys())
+
     df, error_cols, columnConfig, existing_errors_map, existing_feedbacks = await construct_comparison_df(
         project_name, version_to_translation
     )
