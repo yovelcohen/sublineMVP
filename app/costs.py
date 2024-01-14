@@ -4,6 +4,7 @@ from datetime import timedelta
 import beanie.exceptions
 import pandas as pd
 from beanie import PydanticObjectId
+from beanie.odm.operators.find.comparison import In
 from pydantic import BaseModel, Field
 
 import streamlit as st
@@ -11,7 +12,7 @@ import streamlit as st
 from common.config import mongodb_settings
 from common.db import init_db
 from common.models.core import Project, Client
-from common.models.translation import CostRecord, Translation, CostsConfig
+from common.models.translation import CostRecord, Translation, CostsConfig, Costs, ModelVersions
 
 
 class TranslationProjection(BaseModel):
@@ -49,8 +50,9 @@ async def _costs_panel():
     costs: list[CostRecord]
 
     names = {proj.id: proj.name for proj in await Project.find_all().to_list()}
+    vs = [v.value for v in (ModelVersions.V031, ModelVersions.V032)]
     id_to_translation: dict[PydanticObjectId, Translation] = {
-        tr.id: tr for tr in await Translation.find_all().to_list()
+        tr.id: tr for tr in await Translation.find(In(Translation.engine_version, vs)).to_list()
     }
     data = []
 
@@ -59,16 +61,23 @@ async def _costs_panel():
             rec_costs = record.costs
             di = {
                 'Name': names[id_to_translation[record.translation_id].project_id],
+                'Version': id_to_translation[record.translation_id].engine_version,
                 "Length": format_length(id_to_translation[record.translation_id].length),
                 'Num Rows': len(id_to_translation[record.translation_id].subtitles),
-                'Total Cost': get_root_form(record.total_cost()),
-                'OpenAI Input Cost (tokens)': f'{format_multiplied(rec_costs.openai_input_token, CostsConfig.openai_input_token)} (t: {record.costs.openai_input_token})',
-                'OpenAI Output Cost (tokens)': f'{format_multiplied(rec_costs.openai_completion_token, CostsConfig.openai_completion_token)} (t: {record.costs.openai_completion_token})',
+                'Total Cost ($)': get_root_form(record.total_cost()),
+                'OpenAI Input Cost (tokens)': f'{format_multiplied(Costs.units_of_1k(rec_costs.openai_input_token), CostsConfig.openai_input_token)} (t: {record.costs.openai_input_token})',
+                'OpenAI Output Cost (tokens)': f'{format_multiplied(Costs.units_of_1k(rec_costs.openai_completion_token) / 1000, CostsConfig.openai_completion_token)} (t: {record.costs.openai_completion_token})',
             }
             if rec_costs.assembly_ai_second != 0:
-                di['Assembly AI Cost (seconds)'] = f'{format_multiplied(rec_costs.assembly_ai_second, CostsConfig.assembly_ai_second)} (t: {record.costs.assembly_ai_second})'
+                di[
+                    'Assembly AI Cost (seconds)'] = f'{format_multiplied(rec_costs.assembly_ai_second, CostsConfig.assembly_ai_second)} (t: {record.costs.assembly_ai_second})'
+                di[
+                    'Assembly AI Input Cost (tokens)'] = f'{format_multiplied(Costs.units_of_1k(rec_costs.lemur_input_tokens), CostsConfig.lemur_input_tokens)} (t: {record.costs.assembly_ai_input_token})'
+                di[
+                    'Assembly AI Input Cost (tokens)'] = f'{format_multiplied(Costs.units_of_1k(rec_costs.lemur_completion_tokens), CostsConfig.lemur_output_tokens)} (t: {record.costs.assembly_ai_input_token})'
             if rec_costs.deepgram_minutes != 0:
-                di['Deepgram Cost (minutes)'] = f'{format_multiplied(rec_costs.deepgram_minutes, CostsConfig.deepgram_minute)} (r: {record.costs.deepgram_minutes})'
+                di[
+                    'Deepgram Cost (minutes)'] = f'{format_multiplied(rec_costs.deepgram_minutes, CostsConfig.deepgram_minute)} (r: {record.costs.deepgram_minutes})'
 
             data.append(di)
 
