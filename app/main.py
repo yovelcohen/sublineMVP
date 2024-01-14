@@ -213,7 +213,7 @@ async def _get_stats() -> list[Stats]:
     q = TranslationFeedbackV2.find_all(fetch_links=True)
     data = await _get_translations_stats()
     by_v = {
-        v: {'feedbacks': list(), 'sum_checked_rows': 0, 'all_names': set(),
+        v: {'feedbacks': list(), 'sum_checked_rows': 0, 'all_names': set(), 'translations': [],
             'name_to_count': dict(), 'by_error': defaultdict(list), 'count': 0}
         for v in set([t['Engine Version'] for t in data])
     }
@@ -227,19 +227,13 @@ async def _get_stats() -> list[Stats]:
         by_v[version]['name_to_count'][feedback.name] = len(feedback.marked_rows)
         by_v[version]['count'] += 1
         for row in feedback.marked_rows:
-            key = 'V1 Error 1' if 'V1 Error 1' in row else 'Error 1'
-            key2 = 'V2 Error 1' if 'V2 Error 1' in row else 'Error 2'
-            for k in (key, key2):
-                if k in row and row[k] not in ('None', None):
-                    row['Name'] = feedback.name
-                    by_v[version]['by_error'][row[k]].append(row)
+            if row['error'] not in (None, 'None'):
+                row['Name'] = feedback.name
+                by_v[version]['by_error'][row['error']].append(row)
 
     for translation in data:
-        # TODO: Buggy, fix
         version = translation['Engine Version']
-        if 'translations' not in by_v[version]:
-            by_v[version]['translations'] = list()
-        if translation['name'] in by_v[version]['all_names'] and translation['State'] == 'Done':
+        if translation['name'] in by_v[version]['all_names']:
             translation['Reviewed'] = True
             amount_errors = by_v[version]['name_to_count'][translation['name']]
         else:
@@ -395,7 +389,7 @@ def stats_for_version(stats: Stats):
         errors_pct = [err for err in df['Errors %'].to_list() if not isnan(err)]
         errors = [err for err in df['Amount Errors'].to_list() if not isnan(err)]
         st.metric(
-            'Media Errors Count - Single Translation',
+            'Median Errors Count - Single Translation',
             statistics.median(errors),
             f'{statistics.median(errors_pct)}%',
             delta_color='off'

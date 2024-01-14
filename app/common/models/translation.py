@@ -1,3 +1,4 @@
+import json
 import logging
 from dataclasses import dataclass
 from datetime import timedelta
@@ -256,10 +257,11 @@ class ModelVersions(str, Enum):
     V1 = 'v1'
     V2 = 'v2'
     V3 = 'v3'
-    V31 = 'v3.0.1'
+    V031 = 'v3.0.1'
+    V032 = 'v0.3.2'
 
 
-MULTI_MODAL_MODELS = (ModelVersions.V3, ModelVersions.V31)
+MULTI_MODAL_MODELS = (ModelVersions.V3, ModelVersions.V031, ModelVersions.V032)
 
 
 class Translation(BaseCreateUpdateDocument):
@@ -298,8 +300,18 @@ class Translation(BaseCreateUpdateDocument):
         self.state = state
         await self.save(ignore_revision=True)
 
-    def get_row(self, index):
-        return [row for row in self.subtitles if row.index == index][0]
+    # TODO: Move these methods to project, when migrating original rows to project level/blob storage as well
+    @property
+    def length(self) -> timedelta:
+        return self.end_time - self.start_time
+
+    @property
+    def start_time(self) -> timedelta:
+        return self.subtitles[0].start
+
+    @property
+    def end_time(self) -> timedelta:
+        return self.subtitles[-1].end
 
     @property
     def project_id(self):
@@ -338,14 +350,23 @@ class Translation(BaseCreateUpdateDocument):
         return subtitles
 
 
+CostFields = (
+    'deepgram_minute', 'deepgram_summarization', 'assembly_ai_second', 'openai_input_token',
+    'openai_completion_token', 'openai_gpt3_input_token', 'openai_gpt3_completion_token',
+    'lemur_input_tokens', 'lemur_completion_tokens', 'smodin_suggestion_word_cost'
+)
+
+
 class CostsConfig:
     deepgram_minute: float = 0.0043
     deepgram_summarization: float = 0.0044
+    assembly_ai_second = 0.0001028
     openai_input_token: float = 0.01
     openai_completion_token: float = 0.03
     openai_gpt3_input_token: float = 0.0010
     openai_gpt3_completion_token: float = 0.0020
-    mistral_input_token: float = 0.01
+    lemur_input_tokens: float = 0.015
+    lemur_output_tokens: float = 0.043
     smodin_suggestion_word_cost: float = 0.0001
 
 
@@ -356,7 +377,10 @@ class Costs(BaseModel):
     openai_completion_token: int = 0
     openai_gpt3_input_token: int = 0
     openai_gpt3_completion_token: int = 0
+    lemur_input_tokens: int = 0
+    lemur_completion_tokens: int = 0
     deepgram_minutes: int = 0
+    assembly_ai_second: int = 0
     smodin_words: int = 0
 
     def __eq__(self, other):
@@ -365,25 +389,45 @@ class Costs(BaseModel):
                 and self.openai_completion_token == other.openai_completion_token
                 and self.openai_gpt3_input_token == other.openai_gpt3_input_token
                 and self.openai_gpt3_completion_token == other.openai_gpt3_completion_token
-                and self.mistral_input_token == other.mistral_input_token
+                and self.lemur_input_tokens == other.lemur_input_tokens
+                and self.lemur_completion_tokens == other.lemur_completion_tokens
+                and self.assembly_ai_second == other.assembly_ai_second
                 and self.deepgram_minutes == other.deepgram_minutes
                 and self.smodin_words == other.smodin_words
         )
 
     def __and__(self, other):
         return self.__class__(
-            openai_input_token=self.openai_input_token + other.openai_input_token,
-            openai_completion_token=self.openai_completion_token + other.openai_completion_token,
-            openai_gpt3_input_token=self.openai_gpt3_input_token + other.openai_gpt3_input_token,
-            openai_gpt3_completion_token=self.openai_gpt3_completion_token + other.openai_gpt3_completion_token,
+            openai_input_token=self.units_of_1k(self.openai_input_token + other.openai_input_token),
+            openai_completion_token=self.units_of_1k(self.openai_completion_token + other.openai_completion_token),
+            openai_gpt3_input_token=self.units_of_1k(self.openai_gpt3_input_token + other.openai_gpt3_input_token),
+            openai_gpt3_completion_token=self.units_of_1k(
+                self.openai_gpt3_completion_token + other.openai_gpt3_completion_token
+            ),
+            lemur_input_tokens=self.units_of_1k(self.lemur_input_tokens + other.lemur_input_tokens),
+            lemur_completion_tokens=self.units_of_1k(self.lemur_completion_tokens + other.lemur_completion_tokens),
+            assembly_ai_second=self.assembly_ai_second + other.assembly_ai_second,
             deepgram_minutes=self.deepgram_minutes + other.deepgram_minutes,
             smodin_words=self.smodin_words + other.smodin_words,
         )
+
+    @classmethod
+    def units_of_1k(cls, number: int) -> int:
+        units = number // 1000
+        if number % 1000 > 500:
+            units += 1
+        return units
 
 
 class CostRecord(Document):
     translation: Link[Translation]
     costs: Costs
+
+    @property
+    def translation_id(self):
+        if isinstance(self.translation, Link):
+            return self.translation.ref.id
+        return self.translation.id  # noqa
 
     def total_cost(self):
         return (
@@ -393,6 +437,9 @@ class CostRecord(Document):
                 self.costs.openai_gpt3_completion_token * CostsConfig.openai_gpt3_completion_token +
                 self.costs.deepgram_minutes * CostsConfig.deepgram_minute +
                 self.costs.deepgram_minutes * CostsConfig.deepgram_summarization +
+                self.costs.lemur_input_tokens * CostsConfig.lemur_input_tokens +
+                self.costs.lemur_completion_tokens * CostsConfig.lemur_output_tokens +
+                self.costs.assembly_ai_second * CostsConfig.assembly_ai_second +
                 self.costs.smodin_words * CostsConfig.smodin_suggestion_word_cost
         )
 
@@ -401,10 +448,13 @@ class CostRecord(Document):
             raise TypeError(f"unsupported operand type(s) for &: '{type(self)}' and '{type(other)}'")
 
         costs = other.costs if isinstance(other, CostRecord) else other
-        self.costs.openai_input_token += costs.openai_input_token
-        self.costs.openai_completion_token += costs.openai_completion_token
-        self.costs.openai_gpt3_input_token += costs.openai_gpt3_input_token
-        self.costs.openai_gpt3_completion_token += costs.openai_gpt3_completion_token
+        self.costs.openai_input_token += Costs.units_of_1k(costs.openai_input_token)
+        self.costs.openai_completion_token += Costs.units_of_1k(costs.openai_completion_token)
+        self.costs.openai_gpt3_input_token += Costs.units_of_1k(costs.openai_gpt3_input_token)
+        self.costs.openai_gpt3_completion_token += Costs.units_of_1k(costs.openai_gpt3_completion_token)
+        self.costs.lemur_input_tokens += Costs.units_of_1k(costs.lemur_input_tokens)
+        self.costs.lemur_completion_tokens += Costs.units_of_1k(costs.lemur_completion_tokens)
+        self.costs.assembly_ai_second += costs.assembly_ai_second
         self.costs.deepgram_minutes += costs.deepgram_minutes
         self.costs.smodin_words += costs.smodin_words
         return self
@@ -437,6 +487,13 @@ class CostCatcher:
 
     def update_deepgram_stats(self, minutes: int = 0):
         self._costs.deepgram_minutes += minutes
+
+    def update_assembly_ai_seconds(self, seconds: int):
+        self._costs.assembly_ai_second += seconds
+
+    def update_assembly_ai_stats(self, input_tokens: int = 0, completion_tokens: int = 0):
+        self._costs.lemur_input_tokens += input_tokens
+        self._costs.lemur_completion_tokens += completion_tokens
 
     async def __aexit__(self, exc_type, exc_val, exc_tb) -> NoReturn:
         logging.info(f'Costs for Translation: {self.translation_obj.id} -- {self._costs.model_dump_json()}')
