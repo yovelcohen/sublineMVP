@@ -56,6 +56,9 @@ class TranslationSuggestions(BaseModel):
         fields = self.model_fields_set | set(self.model_extra.keys())
         return [f for f in fields if is_v_symbol(f)]
 
+    def get_suggestion(self, version):
+        return getattr(self, version)
+
     def get_suggestions(self) -> list[str]:
         return [getattr(self, k).strip() for k in self.available_versions() if getattr(self, k) is not None]
 
@@ -91,15 +94,6 @@ class TranslationSuggestions(BaseModel):
             self.selected_version = key
 
 
-class SRTRowDict(TypedDict):
-    index: int | str
-    start: str
-    end: str
-    text: str
-    translations: TranslationSuggestions | None
-    speaker: int | None
-
-
 class SRTBlock(BaseModel):
     index: str | int
     start: timedelta
@@ -124,6 +118,9 @@ class SRTBlock(BaseModel):
     def __hash__(self):
         return hash(str(self.index) + str(self.content))
 
+    def __eq__(self, other):
+        return self.index == other.index and self.content == other.content
+
     def __sub__(self, other):
         if not isinstance(other, SRTBlock):
             raise TypeError(
@@ -132,9 +129,6 @@ class SRTBlock(BaseModel):
         self_duration = self.end - self.start
         other_duration = other.end - other.start
         return self_duration - other_duration
-
-    def __eq__(self, other):
-        return self.index == other.index and self.content == other.content
 
     def __lt__(self, other):
         return (self.start, self.end) < (other.start, other.end) and self.index < other.index
@@ -163,10 +157,6 @@ class SRTBlock(BaseModel):
             index = int(index.split('subtitle')[-1].strip())
         data['index'] = int(index)
         return data
-
-    def to_dict(self) -> SRTRowDict:
-        return SRTRowDict(index=self.index, speaker=self.speaker, start=timedelta_to_srt_timestamp(self.start),
-                          end=timedelta_to_srt_timestamp(self.end), text=self.content, translations=self.translations)
 
     def to_srt(self, *, strict=True, eol="\n", translated: bool = True, revision: bool = False):
         r"""
@@ -267,6 +257,9 @@ class ModelVersions(str, Enum):
     V2 = 'v2'
     V3 = 'v3'
     V31 = 'v3.0.1'
+
+
+MULTI_MODAL_MODELS = (ModelVersions.V3, ModelVersions.V31)
 
 
 class Translation(BaseCreateUpdateDocument):

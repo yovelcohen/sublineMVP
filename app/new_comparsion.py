@@ -15,7 +15,7 @@ from pydantic import Field
 from common.config import mongodb_settings
 from common.db import init_db
 from common.models.core import Project
-from common.models.translation import Translation, SRTBlock, ModelVersions
+from common.models.translation import Translation, SRTBlock, ModelVersions, MULTI_MODAL_MODELS, TranslationSuggestions
 from common.utils import rows_to_srt
 
 labels = ['Gender Mistake', 'Time Tenses', 'Names', 'Slang', 'Prepositions',
@@ -180,6 +180,61 @@ async def _update_results(
     return updates_made
 
 
+def _display_additional_variations(version_to_translation):
+    with st.expander(label='Additional Variations', expanded=False):
+        # TODO: Add explaining on sidebar
+        for v, t in version_to_translation.items():
+            if v in MULTI_MODAL_MODELS:
+                st.subheader(f'{v.value} Variations')
+                available_versions = max(
+                    [k.translations.available_versions() for k in t.subtitles if k.translations is not None],
+                    key=lambda x: len(x)
+                )
+
+                data = {
+                    'Time Stamp': [f'{row.start} --> {row.end}' for row in t.subtitles],
+                    'English': [row.content for row in t.subtitles],
+                    **{v: [] for v in available_versions}
+                }
+
+                def addNoneRow():
+                    for r in available_versions:
+                        data[r].append(None)
+
+                for row in t.subtitles:
+                    if row.translations is not None:
+                        for rev in available_versions:
+                            row_versions = row.translations.available_versions()
+                            if rev in row_versions:
+                                raw_string = row.translations.get_suggestion(rev)
+                                if row.translations.selection == raw_string:
+                                    raw_string = f':: {raw_string}'
+                                data[rev].append(raw_string)
+                            else:
+                                data[rev].append(None)
+                    else:
+                        addNoneRow()
+
+                df = pd.DataFrame(data)
+
+                def highlight_green(cell):
+                    if isinstance(cell, str) and cell.startswith(':: '):
+                        return 'background-color: green'
+                    return ''
+
+                styled = df.style.applymap(highlight_green)
+
+                # def clean_marker(cell):
+                #     if isinstance(cell, str) and ':selected_' in cell:
+                #         return cell.replace(':selected_', '')
+                #     return cell
+                #
+                # for col in df.columns:
+                #     df[col] = df[col].apply(clean_marker)
+
+                st.dataframe(styled)
+
+
 async def _newest_ever_compare(project_id):
     project_id = PydanticObjectId(project_id)
     version_to_translation: dict[ModelVersions, Translation] = {
@@ -195,8 +250,7 @@ async def _newest_ever_compare(project_id):
     )
     edited_df = st.data_editor(df, column_config=columnConfig, use_container_width=True)
 
-    with st.expander(label='Additional Variations', expanded=False):
-        pass
+    _display_additional_variations(version_to_translation)
 
     if st.button('Submit'):
         updates_made = await _update_results(
@@ -204,11 +258,11 @@ async def _newest_ever_compare(project_id):
             existing_errors_map=existing_errors_map, existing_feedbacks=existing_feedbacks,
             version_to_translation=version_to_translation
         )
-        st.info(f"Num Rows: {len(edited_df)}")
+        st.success(f"Num Rows: {len(edited_df)}")
         for v, amount in updates_made.items():
-            st.info(f"Num Mistakes {v.value}: {amount} ({pct(amount, len(edited_df))} %)")
+            st.success(f"Num Mistakes {v.value}: {amount} ({pct(amount, len(edited_df))} %)")
 
-        st.write('Successfully Saved Results to DB!')
+        st.success('Successfully Saved Results to DB!')
         logging.info('finished and saved subtitles review')
         for v, translation in version_to_translation.items():
             srt = rows_to_srt(rows=translation.subtitles, target_language=translation.target_language)
