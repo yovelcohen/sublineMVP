@@ -1,3 +1,4 @@
+import datetime
 import json
 import logging
 from dataclasses import dataclass
@@ -265,7 +266,7 @@ MULTI_MODAL_MODELS = (ModelVersions.V3, ModelVersions.V031, ModelVersions.V032)
 
 
 class Translation(BaseCreateUpdateDocument):
-    engine_version: ModelVersions = Field(default=ModelVersions.V3, alias='modelVersion')
+    engine_version: ModelVersions = Field(default=ModelVersions.V032, alias='modelVersion')
     project: Link[Project]
     target_language: str
 
