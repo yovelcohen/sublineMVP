@@ -65,15 +65,18 @@ if st.session_state["authentication_status"] == None:
 if st.session_state["authentication_status"] == False:
     st.error('The username or password you have entered is invalid')
 
-if not st.session_state.get('DB') and st.session_state["authentication_status"] is True:
-    logger.info('initiating DB Connection And collections')
-    db, docs = asyncio.run(
-        init_db(settings=mongodb_settings,
-                documents=[Translation, TranslationFeedbackV2, Project, Client, ClientChannel],
-                allow_index_dropping=True)
+
+def connect_DB():
+    _docs, _db = asyncio.run(
+        init_db(mongodb_settings, [Translation, TranslationFeedbackV2, Project, Client, ClientChannel, User])
     )
-    st.session_state['DB'] = db
-    logger.info('Finished DB Connection And collections init process')
+    st.session_state['DB'] = _db
+    return _docs, _db
+
+
+if st.session_state.get('DB') is None and st.session_state["authentication_status"] is True:
+    logger.info('initiating DB Connection And collections')
+    connect_DB()
 
 
 class Projection(BaseModel):
@@ -146,28 +149,8 @@ def download_button(_name: str, srt_string1: SrtString, srt_string2: SrtString =
                        mime='application/zip')
 
 
-def _display_one_comparison_panel(rows: list[SRTBlock], revision_rows: list[SRTBlock] = None):
-    rows = sorted(list(rows), key=lambda x: x.index)
-    labels = ['Gender Mistake', 'Time Tenses', 'Names', 'Slang', 'Prepositions',
-              'Name "as is"', 'not fit in context', 'Plain Wrong Translation']
-
-    select_box_col = lambda label: st.column_config.SelectboxColumn(
-        width='medium', label=label, required=False, options=labels
-    )
-    select_cols = ['Error 1', 'Error 2']
-    config = {
-        'Original Language': st.column_config.TextColumn(width='large'),
-        'Glix Translation 1': st.column_config.TextColumn(width='large'),
-        'Error 1': select_box_col('Error 1'),
-        'Error 2': select_box_col('Error 2'),
-    }
-
-    if revision_rows:
-        config['Additional Translation'] = st.column_config.TextColumn(width='large', disabled=True)
-
-
 async def _get_translations_stats() -> list[dict]:
-    if not st.session_state.get('DB'):
+    if st.session_state.get('DB') is None:
         db, docs = asyncio.run(init_db(mongodb_settings, [Translation]))
         st.session_state['DB'] = db
 
@@ -209,7 +192,8 @@ async def _get_translations_stats() -> list[dict]:
 
 
 async def _get_stats() -> list[Stats]:
-    await init_db(mongodb_settings, [TranslationFeedbackV2])
+    if st.session_state.get('DB') is None:
+        await init_db(mongodb_settings, [TranslationFeedbackV2])
 
     q = TranslationFeedbackV2.find_all(fetch_links=True)
     data = await _get_translations_stats()
@@ -314,9 +298,8 @@ class NameProject(Project):
 
 
 def subtitles_viewer_from_db():
-    db, docs = asyncio.run(
-        init_db(mongodb_settings, [Translation, TranslationFeedbackV2, Project, Client, ClientChannel, User]))
-    st.session_state['DB'] = db
+    if st.session_state.get('DB') is None:
+        connect_DB()
 
     existing_feedbacks = asyncio.run(TranslationFeedbackV2.find_all().to_list())
     names = [d.name for d in existing_feedbacks]

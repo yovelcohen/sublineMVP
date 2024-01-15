@@ -260,6 +260,7 @@ class ModelVersions(str, Enum):
     V3 = 'v3'
     V031 = 'v3.0.1'
     V032 = 'v0.3.2'
+    V033 = 'v0.3.3'
 
 
 MULTI_MODAL_MODELS = (ModelVersions.V3, ModelVersions.V031, ModelVersions.V032)
