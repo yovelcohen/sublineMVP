@@ -261,6 +261,7 @@ class ModelVersions(str, Enum):
     V031 = 'v3.0.1'
     V032 = 'v0.3.2'
     V033 = 'v0.3.3'
+    V034 = 'v0.3.4'
 
 
 MULTI_MODAL_MODELS = (ModelVersions.V3, ModelVersions.V031, ModelVersions.V032)
@@ -360,30 +361,30 @@ CostFields = (
 
 
 class CostsConfig:
-    deepgram_minute: float = 0.0043
-    deepgram_summarization: float = 0.0044
+    deepgram_minute: float | int = 0.0043
+    deepgram_summarization: float | int = 0.0044
     assembly_ai_second = 0.0001028
-    openai_input_token: float = 0.01
-    openai_completion_token: float = 0.03
-    openai_gpt3_input_token: float = 0.0010
-    openai_gpt3_completion_token: float = 0.0020
-    lemur_input_tokens: float = 0.015
-    lemur_output_tokens: float = 0.043
-    smodin_suggestion_word_cost: float = 0.0001
+    openai_input_token: float | int = 0.01
+    openai_completion_token: float | int = 0.03
+    openai_gpt3_input_token: float | int = 0.0010
+    openai_gpt3_completion_token: float | int = 0.0020
+    lemur_input_tokens: float | int = 0.015
+    lemur_output_tokens: float | int = 0.043
+    smodin_suggestion_word_cost: float | int = 0.0001
 
 
 class Costs(BaseModel):
     model_config = ConfigDict(extra='allow', alias_generator=document_alias_generator)
 
-    openai_input_token: int = 0
-    openai_completion_token: int = 0
-    openai_gpt3_input_token: int = 0
-    openai_gpt3_completion_token: int = 0
-    lemur_input_tokens: int = 0
-    lemur_completion_tokens: int = 0
-    deepgram_minutes: int = 0
-    assembly_ai_second: int = 0
-    smodin_words: int = 0
+    openai_input_token: float | int = 0
+    openai_completion_token: float | int = 0
+    openai_gpt3_input_token: float | int = 0
+    openai_gpt3_completion_token: float | int = 0
+    lemur_input_tokens: float | int = 0
+    lemur_completion_tokens: float | int = 0
+    deepgram_minutes: float | int = 0
+    assembly_ai_second: float | int = 0
+    smodin_words: float | int = 0
 
     def __eq__(self, other):
         return (
@@ -414,10 +415,12 @@ class Costs(BaseModel):
         )
 
     @classmethod
-    def units_of_1k(cls, number: int) -> int:
+    def units_of_1k(cls, number: int) -> int | float:
         units = number // 1000
         if number % 1000 > 500:
             units += 1
+        if units == 0:
+            units = number / 1000
         return units
 
 

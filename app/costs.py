@@ -1,5 +1,6 @@
 import asyncio
 from datetime import timedelta
+from typing import Callable, Any
 
 import beanie.exceptions
 import pandas as pd
@@ -26,7 +27,7 @@ def format_length(delta: timedelta):
     return f"{hours:02}:{minutes:02}:{seconds:02}"
 
 
-format_multiplied = lambda x, y: f'{x * y:.2f}'  # noqa
+format_multiplied: Callable[[float, float], str] = lambda x, y: f'{round((x * y), 5)}'
 
 
 def get_root_form(num):
@@ -50,7 +51,7 @@ async def _costs_panel():
     costs: list[CostRecord]
 
     names = {proj.id: proj.name for proj in await Project.find_all().to_list()}
-    vs = [v.value for v in (ModelVersions.V031, ModelVersions.V032)]
+    vs = [v.value for v in (ModelVersions.V031, ModelVersions.V032, ModelVersions.V033, ModelVersions.V034)]
     id_to_translation: dict[PydanticObjectId, Translation] = {
         tr.id: tr for tr in await Translation.find(In(Translation.engine_version, vs)).to_list()
     }
@@ -83,6 +84,12 @@ async def _costs_panel():
 
     df = pd.DataFrame(data)
     st.data_editor(df, disabled=True, use_container_width=True)
+    st.info(
+        """
+        For OpenAI and Assembly AI, the cost is N $ per 1k tokens. so the token count in the brackets is multiplied * 1000.
+        For Assembly AI's transcription, which is mandatory in order to access the Lemur LLM, the cost is N $ per 1k seconds. so the seconds count in the brackets is multiplied * 1000. 
+        """
+    )
 
 
 def costs_panel():
