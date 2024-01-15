@@ -69,16 +69,12 @@ async def _costs_panel():
                 'OpenAI Input Cost (tokens)': f'{format_multiplied(Costs.units_of_1k(rec_costs.openai_input_token), CostsConfig.openai_input_token)} (t: {record.costs.openai_input_token})',
                 'OpenAI Output Cost (tokens)': f'{format_multiplied(Costs.units_of_1k(rec_costs.openai_completion_token) / 1000, CostsConfig.openai_completion_token)} (t: {record.costs.openai_completion_token})',
             }
-            if rec_costs.assembly_ai_second != 0:
-                di[
-                    'Assembly AI Cost (seconds)'] = f'{format_multiplied(rec_costs.assembly_ai_second, CostsConfig.assembly_ai_second)} (t: {record.costs.assembly_ai_second})'
-                di[
-                    'Assembly AI Input Cost (tokens)'] = f'{format_multiplied(Costs.units_of_1k(rec_costs.lemur_input_tokens), CostsConfig.lemur_input_tokens)} (t: {record.costs.assembly_ai_input_token})'
-                di[
-                    'Assembly AI Input Cost (tokens)'] = f'{format_multiplied(Costs.units_of_1k(rec_costs.lemur_completion_tokens), CostsConfig.lemur_output_tokens)} (t: {record.costs.assembly_ai_input_token})'
-            if rec_costs.deepgram_minutes != 0:
-                di[
-                    'Deepgram Cost (minutes)'] = f'{format_multiplied(rec_costs.deepgram_minutes, CostsConfig.deepgram_minute)} (r: {record.costs.deepgram_minutes})'
+            di[
+                'Assembly AI Cost (seconds)'] = f'{format_multiplied(rec_costs.assembly_ai_second, CostsConfig.assembly_ai_second)} (t: {record.costs.assembly_ai_second})'
+            di[
+                'Assembly AI Input Cost (tokens)'] = f'{format_multiplied(Costs.units_of_1k(rec_costs.lemur_input_tokens), CostsConfig.lemur_input_tokens)} (t: {record.costs.assembly_ai_input_token})'
+            di[
+                'Assembly AI Input Cost (tokens)'] = f'{format_multiplied(Costs.units_of_1k(rec_costs.lemur_completion_tokens), CostsConfig.lemur_output_tokens)} (t: {record.costs.assembly_ai_input_token})'
 
             data.append(di)
 
