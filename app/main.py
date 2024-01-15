@@ -117,6 +117,7 @@ STATES_MAP = {
     'ip': 'In Progress',
     'aa': "Audio Intelligence",
     'va': "Video Intelligence",
+    'tr': "Translating",
     'co': 'Completed',
     'fa': 'Failed'
 }
