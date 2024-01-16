@@ -56,7 +56,8 @@ async def get_stats_df():
         st.header(error_type)
         errors = [err_di for err_di in errors if err_di is not None]
         df = pd.DataFrame(errors)
-
+        # Drop columns where all values are None
+        df = df.dropna(axis=1, how='all')
         conf = {
             k: st.column_config.TextColumn(width='large', disabled=True) for k in df.columns
             if 'v0' in k or k == 'English' or '.3.' in k
