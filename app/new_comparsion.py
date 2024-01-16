@@ -9,10 +9,8 @@ import typing_extensions
 from beanie import PydanticObjectId, Document
 from pydantic import Field
 
-from common.config import mongodb_settings
-from common.db import init_db
 from common.models.core import Project
-from common.models.translation import Translation, ModelVersions, MULTI_MODAL_MODELS
+from common.models.translation import Translation, ModelVersions, is_multi_modal
 from common.utils import rows_to_srt
 
 
@@ -59,7 +57,7 @@ def _show_sidebar(project_name, target_language, available_versions):
         for name, val in info.items():
             st.info(f'{name}: {val}')
 
-        if any([v in MULTI_MODAL_MODELS for v in available_versions]):
+        if any([is_multi_modal(v) for v in available_versions]):
             st.divider()
             st.info(
                 'Additional Variations Segment: This translation has a > v3 version, those contain several variations for each row. this tab will show you those.'
@@ -152,57 +150,59 @@ async def _update_results(
 
 
 def _display_additional_variations(version_to_translation):
-    # if any([v in MULTI_MODAL_MODELS for v in version_to_translation.keys()]):
     st.divider()
     with st.expander(label='Additional Variations', expanded=False):
-        # TODO: Add explaining on sidebar
         for v, t in version_to_translation.items():
-            if v in MULTI_MODAL_MODELS:
+            if is_multi_modal(v):
                 st.subheader(f'{v.value} Variations')
-                available_versions = max(
-                    [k.translations.available_versions() for k in t.subtitles if k.translations is not None],
-                    key=lambda x: len(x)
-                )
+                variations = [k.translations.available_versions() for k in t.subtitles if k.translations is not None]
+                if len(variations) == 0:
+                    pass
+                else:
+                    available_versions = max(
+                        [k.translations.available_versions() for k in t.subtitles if k.translations is not None],
+                        key=lambda x: len(x)
+                    )
 
-                data = {
-                    'Time Stamp': [f'{row.start} --> {row.end}' for row in t.subtitles],
-                    'English': [row.content for row in t.subtitles],
-                    **{v: [] for v in available_versions}
-                }
+                    data = {
+                        'Time Stamp': [f'{row.start} --> {row.end}' for row in t.subtitles],
+                        'English': [row.content for row in t.subtitles],
+                        **{v: [] for v in available_versions}
+                    }
 
-                def addNoneRow():
-                    for r in available_versions:
-                        data[r].append(None)
+                    def addNoneRow():
+                        for r in available_versions:
+                            data[r].append(None)
 
-                for row in t.subtitles:
-                    if row.translations is not None:
-                        for rev in available_versions:
-                            row_versions = row.translations.available_versions()
-                            if rev in row_versions:
-                                raw_string = row.translations.get_suggestion(rev)
-                                if row.translations.selection == raw_string:
-                                    raw_string = f':: {raw_string}'
-                                data[rev].append(raw_string)
-                            else:
-                                data[rev].append(None)
-                    else:
-                        addNoneRow()
-                max_len = max([len(v) for v in data.values()])
-                data['Correct'] = [None] * max_len
-                df = pd.DataFrame(data)
+                    for row in t.subtitles:
+                        if row.translations is not None:
+                            for rev in available_versions:
+                                row_versions = row.translations.available_versions()
+                                if rev in row_versions:
+                                    raw_string = row.translations.get_suggestion(rev)
+                                    if row.translations.selection == raw_string:
+                                        raw_string = f':: {raw_string}'
+                                    data[rev].append(raw_string)
+                                else:
+                                    data[rev].append(None)
+                        else:
+                            addNoneRow()
+                    max_len = max([len(v) for v in data.values()])
+                    data['Correct'] = [None] * max_len
+                    df = pd.DataFrame(data)
 
-                def highlight_green(cell):
-                    if isinstance(cell, str) and cell.startswith(':: '):
-                        return 'background-color: green'
-                    return ''
+                    def highlight_green(cell):
+                        if isinstance(cell, str) and cell.startswith(':: '):
+                            return 'background-color: green'
+                        return ''
 
-                styled = df.style.map(highlight_green)
-                conf = {
-                    **{col: st.column_config.TextColumn(width='large', disabled=True)
-                       for col in available_versions},
-                    **{'Correct': SelectBoxColumn('Correct', ['Yes', 'No'])}
-                }
-                edited_df = st.data_editor(styled, use_container_width=True, column_config=conf)
+                    styled = df.style.map(highlight_green)
+                    conf = {
+                        **{col: st.column_config.TextColumn(width='large', disabled=True)
+                           for col in available_versions},
+                        **{'Correct': SelectBoxColumn('Correct', ['Yes', 'No'])}
+                    }
+                    edited_df = st.data_editor(styled, use_container_width=True, column_config=conf)
 
 
 async def _newest_ever_compare(project_id):

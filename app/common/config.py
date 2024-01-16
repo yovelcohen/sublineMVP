@@ -2,7 +2,6 @@ from pydantic_settings import BaseSettings
 
 
 class _MongoDBSettings(BaseSettings):
-    # MONGO_FULL_URL: str = 'mongodb+srv://cluster1.bb0fppm.mongodb.net/?authSource=%24external&authMechanism=MONGODB-X509&retryWrites=true&w=majority'
     MONGO_FULL_URL: str = 'mongodb+srv://cluster1.bb0fppm.mongodb.net/?authSource=%24external&authMechanism=MONGODB-X509&retryWrites=true&w=majority'
     # MONGO_FULL_URL: str = 'mongodb://localhost:27017'
     SSL_CA_CERTS: bool = True

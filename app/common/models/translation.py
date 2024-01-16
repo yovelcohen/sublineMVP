@@ -264,7 +264,7 @@ class ModelVersions(str, Enum):
     V034 = 'v0.3.4'
 
 
-MULTI_MODAL_MODELS = (ModelVersions.V3, ModelVersions.V031, ModelVersions.V032)
+is_multi_modal = lambda v: v.value.startswith('v3') or '.3.' in v.value
 
 
 class Translation(BaseCreateUpdateDocument):
