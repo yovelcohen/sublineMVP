@@ -23,7 +23,7 @@ from common.consts import SrtString
 from common.models.core import Ages, Genres, Project, Client, ClientChannel
 from common.config import mongodb_settings
 from common.db import init_db
-from common.models.translation import Translation, SRTBlock, ModelVersions
+from common.models.translation import Translation, ModelVersions
 from common.models.users import User
 from costs import costs_panel
 from new_comparsion import newest_ever_compare, TranslationFeedbackV2

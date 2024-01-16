@@ -140,12 +140,13 @@ async def _update_results(
             existing.marked_rows = list(existing_errors_map[v].values())
             await existing.save()
         else:
-            await TranslationFeedbackV2(
-                name=project_name,
-                version=v,
-                total_rows=len(edited_df),
-                marked_rows=list(existing_errors_map[v].values())
-            ).create()
+            if v in existing_errors_map and len(existing_errors_map[v]) > 0:
+                await TranslationFeedbackV2(
+                    name=project_name,
+                    version=v,
+                    total_rows=len(edited_df),
+                    marked_rows=list(existing_errors_map[v].values())
+                ).create()
     return updates_made
 
 

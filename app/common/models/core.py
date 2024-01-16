@@ -113,60 +113,49 @@ class Project(Document):
 
     name: str
     source_language: str
-    type: ProjectTypes | None = None
-    description: ProjectDescription | None = None
 
+    description: ProjectDescription | None = Field(default_factory=lambda: ProjectDescription())
+
+    type: ProjectTypes | None = None
     season: int | None = None
     episode: int | None = None
     mime_type: str | None = None
 
-    uploader_id: PydanticObjectId
     client: Link[Client]
-    channel: Link[ClientChannel] | None = None
     parent: Link['Project'] | None = None
+    channel: Link[ClientChannel] | None = None
 
+    uploader_id: PydanticObjectId | None = None
     allowed_editors: list[PydanticObjectId] = Field(
-        default_factory=list, description="List of user ids that are allowed to edit this project"
+        default_factory=list, description="List of user ids that are allowed to edit this request_data"
     )
 
     created_at: datetime = Field(default_factory=datetime.now)
+    updated_at: datetime = Field(default_factory=datetime.now)
 
     class Settings:
         indexes = [
-            IndexModel(
-                name="unique_together",
-                keys=[
-                    ("client", pymongo.DESCENDING),
-                    ("name", pymongo.DESCENDING),
-                    ("type", pymongo.DESCENDING),
-                ],
-                unique=True,
-            ),
+            # IndexModel(
+            #     name="unique_together",
+            #     keys=[
+            #         ("client", pymongo.DESCENDING),
+            #         ('parent', pymongo.DESCENDING),
+            #         ("name", pymongo.DESCENDING),
+            #         ("type", pymongo.DESCENDING),
+            #         ("season", pymongo.DESCENDING),
+            #         ("episode", pymongo.DESCENDING),
+            #     ],
+            #     unique=True,
+            # ),
             IndexModel(
                 keys=[("name", pymongo.DESCENDING)],
-                name="unique_name_index_DESCENDING",
-                unique=True
+                name="name_index_DESCENDING"
             )
         ]
 
-    @field_validator('description', mode='before')
-    @classmethod
-    def validate_description(cls, description):
-        if isinstance(description, dict):
-            return ProjectDescription(**description)
-        elif isinstance(description, ProjectDescription):
-            return description
-        return ProjectDescription()
-
     @property
-    def is_root(self):
+    def is_root(self) -> bool:
         return not self.parent
-
-    @property
-    def client_id(self):
-        if isinstance(self.client, Link):
-            return self.client.ref.id
-        return self.client.id  # noqa
 
     @property
     def qualifying_name(self) -> str:
