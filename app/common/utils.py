@@ -247,3 +247,9 @@ def benchmark(hint=None):
         return wrapper
 
     return decorator
+
+
+def pct(a, b):
+    if a == 0 or b == 0:
+        return 0
+    return round((a / b) * 100, 2)

@@ -89,9 +89,9 @@ class Genres(str, Enum):
 class ProjectDescription(BaseModel):
     model_config = ConfigDict(alias_generator=document_alias_generator, populate_by_name=True)
 
-    age: Ages = Ages.ZERO
-    main_genre: Genres = Genres.NOOP
-    additional_genres: list[Genres] = Field(default_factory=list)
+    age: Ages | None = Ages.ZERO
+    main_genre: Genres | None = Genres.NOOP
+    additional_genres: list[Genres] | None = Field(default_factory=list)
     user_description: str | None = None
 
     @model_validator(mode='before')
@@ -100,9 +100,12 @@ class ProjectDescription(BaseModel):
         if not data:
             return data
         for k in ('age', 'main_genre'):
+            data[k] = Ages.ZERO if k == 'age' else Genres.NOOP
             if k in data and isinstance(data[k], str):
                 _cls = Ages if k == 'age' else Genres
                 data[k] = _cls(data[k])
+        if data.get('additional_genres', None) is None:
+            data['additional_genres'] = list()
         if 'additional_genres' in data and isinstance(data['additional_genres'], list):
             data['additional_genres'] = [Genres(g) for g in data['additional_genres']]
         return data
@@ -112,7 +115,7 @@ class Project(Document):
     model_config = {**BaseDocument.model_config, 'use_enum_values': True}
 
     name: str
-    source_language: str
+    source_language: str | None
 
     description: ProjectDescription | None = Field(default_factory=lambda: ProjectDescription())
 
