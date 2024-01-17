@@ -238,9 +238,14 @@ async def _newest_ever_compare(project_id):
         logging.info('finished and saved subtitles review')
         for v, translation in version_to_translation.items():
             srt = rows_to_srt(rows=translation.subtitles, target_language=translation.target_language)
+            og_srt = rows_to_srt(rows=translation.subtitles, translated=False)
             st.download_button(
                 label=f'Download {v.value} SRT', data=srt,
                 file_name=f'{project_name}_{translation.target_language}_{v.value}.srt'
+            )
+            st.download_button(
+                label=f'Download {v.value} OG SRT', data=og_srt,
+                file_name=f'{project_name}_{translation.target_language}_{v.value}_OG.srt'
             )
 
 

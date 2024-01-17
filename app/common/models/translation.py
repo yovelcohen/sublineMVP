@@ -160,7 +160,7 @@ class SRTBlock(BaseModel):
         data['index'] = int(index)
         return data
 
-    def to_srt(self, *, strict=True, eol="\n", translated: bool = True, revision: bool = False):
+    def to_srt(self, *, strict=True, eol="\n", translated: bool = True):
         r"""
         Convert the current :py:class:`Subtitle` to an SRT block.
 
@@ -263,6 +263,7 @@ class ModelVersions(str, Enum):
     V033 = 'v0.3.3'
     V034 = 'v0.3.4'
     V035 = 'v0.3.5'
+    V036 = 'v0.3.6'
 
 
 is_multi_modal = lambda v: v.value.startswith('v3') or '.3.' in v.value
