@@ -164,6 +164,7 @@ async def _get_viewer_data():
         Project.find_all().project(Projection).to_list()
 
     )
+    return fbs, projects
 
 
 @st.cache_data
