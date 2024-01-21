@@ -1,7 +1,7 @@
 import asyncio
 import datetime
 import logging
-from typing import Self, NotRequired
+from typing import Self, NotRequired, DefaultDict
 
 import pandas as pd
 import streamlit as st
@@ -66,16 +66,15 @@ def _show_sidebar(project_name, target_language, available_versions):
             )
 
 
-async def construct_comparison_df(project_name, version_to_translation):
+async def construct_comparison_df(
+        version_to_translation: dict[ModelVersions, Translation],
+        existing_feedbacks: dict[ModelVersions, TranslationFeedbackV2]
+):
     first = list(version_to_translation.values())[0]
     error_cols = list()
     data = {
         'Time Stamp': [f'{row.start} --> {row.end}' for row in first.subtitles],
         'English': [row.content for row in first.subtitles]
-    }
-
-    existing_feedbacks: dict[ModelVersions, TranslationFeedbackV2] = {
-        fb.version: fb for fb in await TranslationFeedbackV2.find(TranslationFeedbackV2.name == project_name).to_list()
     }
 
     columnConfig = {
@@ -97,11 +96,9 @@ async def construct_comparison_df(project_name, version_to_translation):
 
         if v in existing_feedbacks:
             feedback = existing_feedbacks[v]
-            existing_errors_map[v] = {
-                row['original']: row for row in feedback.marked_rows
-            }
+            existing_errors_map[v] = {row['original']: row for row in feedback.marked_rows}
             data[err_key] = [
-                existing_errors_map[v].get(content, {}).get('error', None) for content in data['English']
+                existing_errors_map[v].get(content, {}).get('error', None) for content in data['English']  # noqa
             ]
         else:
             data[err_key] = [None] * len(data[v.value])
@@ -112,11 +109,16 @@ async def construct_comparison_df(project_name, version_to_translation):
             data[k] = v + ([None] * (maxlen - len(v)))
 
     df = pd.DataFrame(data)
-    return df, error_cols, columnConfig, existing_errors_map, existing_feedbacks
+    return df, error_cols, columnConfig, existing_errors_map
 
 
 async def _update_results(
-        project_name, edited_df, error_cols, existing_errors_map, existing_feedbacks, version_to_translation
+        project_name: str,
+        edited_df: pd.DataFrame,
+        error_cols: list[str],
+        existing_errors_map: dict | DefaultDict,
+        existing_feedbacks: dict[ModelVersions, TranslationFeedbackV2],
+        version_to_translation: dict[ModelVersions, Translation]
 ):
     updates_made = dict()
     for row in edited_df.to_dict(orient='records'):
@@ -207,28 +209,34 @@ def _display_additional_variations(version_to_translation):
                     edited_df = st.data_editor(styled, use_container_width=True, column_config=conf)
 
 
-async def _newest_ever_compare(project_id):
+async def get_compare_data(project_id):
     project_id = PydanticObjectId(project_id)
-    version_to_translation: dict[ModelVersions, Translation] = {
-        t.engine_version: t for t in await Translation.find(Translation.project.id == project_id).to_list()  # noqa
-    }
-    first = list(version_to_translation.values())[0]
+    proj = await Project.get(project_id)
+    ts, fbs = await asyncio.gather(
+        Translation.find(Translation.project.id == project_id).to_list(),  # noqa
+        TranslationFeedbackV2.find(TranslationFeedbackV2.name == proj.name).to_list()
+    )
+    return proj, ts, fbs
 
-    project_name = (await Project.get(project_id)).name
+
+async def _newest_ever_compare_logic(project, translations: list[Translation], feedbacks):
+    project_id, project_name = project.id, project.name
+    version_to_translation: dict[ModelVersions, Translation] = {t.engine_version: t for t in translations}
+    first = list(version_to_translation.values())[0]
 
     _show_sidebar(project_name, first.target_language, version_to_translation.keys())
 
-    df, error_cols, columnConfig, existing_errors_map, existing_feedbacks = await construct_comparison_df(
-        project_name, version_to_translation
+    df, error_cols, column_config, existing_errors_map = await construct_comparison_df(
+        version_to_translation=version_to_translation, existing_feedbacks=feedbacks
     )
-    edited_df = st.data_editor(df, column_config=columnConfig, use_container_width=True)
+    edited_df = st.data_editor(df, column_config=column_config, use_container_width=True)
 
     _display_additional_variations(version_to_translation)
 
     if st.button('Submit'):
         updates_made = await _update_results(
             project_name=project_name, edited_df=edited_df, error_cols=error_cols,
-            existing_errors_map=existing_errors_map, existing_feedbacks=existing_feedbacks,
+            existing_errors_map=existing_errors_map, existing_feedbacks=feedbacks,
             version_to_translation=version_to_translation
         )
         st.success(f"Num Rows: {len(edited_df)}")
@@ -251,4 +259,6 @@ async def _newest_ever_compare(project_id):
 
 
 def newest_ever_compare(project_id):
-    return asyncio.run(_newest_ever_compare(project_id))
+    proj, ts, fbs = asyncio.run(get_compare_data(project_id))
+    existing_feedbacks: dict[ModelVersions, TranslationFeedbackV2] = {fb.version: fb for fb in fbs}
+    return asyncio.run(_newest_ever_compare_logic(project=proj, translations=ts, feedbacks=existing_feedbacks))
