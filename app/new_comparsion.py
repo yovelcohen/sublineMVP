@@ -28,7 +28,7 @@ class MarkedRow(typing_extensions.TypedDict):
 
 class TranslationFeedbackV2(Document):
     name: str
-    version: ModelVersions = Field(default=ModelVersions.V1, alias='engine_version')
+    version: ModelVersions = Field(default=ModelVersions.LATEST, alias='engine_version')
     total_rows: int
     marked_rows: list[MarkedRow]
     duration: datetime.timedelta | None = None
