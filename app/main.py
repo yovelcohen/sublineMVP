@@ -175,7 +175,7 @@ def get_viewer_data():
 
 
 def subtitles_viewer_from_db():
-    existing_feedbacks, projects = asyncio.run(get_viewer_data())
+    existing_feedbacks, projects = get_viewer_data()
     names = [d.name for d in existing_feedbacks]
     project_names = {proj.id: proj.name for proj in projects}
 
