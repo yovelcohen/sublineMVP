@@ -216,19 +216,19 @@ def subtitles_viewer_from_db():
 
 def manage_existing():
     data = asyncio.run(get_stats())
-    for stats in data:
-        st.header(stats.version.value.upper())
+    for _stats in data:
+        st.header(_stats.version.value.upper())
         data = [
             {'ID': str(row['id']), 'name': row['name'], 'State': row['State'],
              'Reviewed': row['Reviewed'], 'Delete': row['Delete'], 'Amount Rows': row['Amount Rows'],
              'Amount OG Words': row['Amount OG Words'], 'Amount Translated Words': row['Amount Translated Words']}
-            for row in stats.translations
+            for row in _stats.translations
         ]
         df = pd.DataFrame(data)
         edited_df = st.data_editor(df, column_config={'Reviewed': st.column_config.SelectboxColumn(disabled=True)},
                                    use_container_width=True, hide_index=True)
 
-        if st.button('Delete'):
+        if st.button('Delete', key=f'{_stats.version.value}_delete'):
             rows = edited_df.to_dict(orient='records')
             to_delete = [proj['ID'] for proj in rows if proj['Delete'] is True]
             if to_delete:
