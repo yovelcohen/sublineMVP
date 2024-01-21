@@ -2,7 +2,7 @@ import asyncio
 import logging
 from pathlib import Path
 
-from beanie import init_beanie, Link
+from beanie import init_beanie
 from motor.core import AgnosticDatabase
 from motor.motor_asyncio import AsyncIOMotorClient
 
