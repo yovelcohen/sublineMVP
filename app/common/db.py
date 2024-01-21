@@ -17,7 +17,7 @@ async def _get_mongo_client(settings):
     if settings.SSL_CA_CERTS:
         client = AsyncIOMotorClient(
             settings.MONGO_FULL_URL,
-            tlsCertificateKeyFile=str(Path(__file__).parent / 'X509-cert-6661849979066861196.pem'),
+            tlsCertificateKeyFile=str(Path(__file__).parent / 'X509-cert-394175910844907634.pem'),
             tls=True,
             uuidRepresentation="standard"
         )

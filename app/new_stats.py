@@ -6,8 +6,8 @@ import pandas as pd
 from beanie import PydanticObjectId
 import streamlit as st
 
-from common.models.core import Project
-from common.models.translation import Translation
+from app.common.models.core import Project
+from app.common.models.translation import Translation
 from new_comparsion import TranslationFeedbackV2
 
 

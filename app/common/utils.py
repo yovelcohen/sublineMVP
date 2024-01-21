@@ -12,8 +12,8 @@ from azure.storage.blob import generate_blob_sas, BlobSasPermissions
 from azure.storage.blob.aio import BlobServiceClient
 from srt import sort_and_reindex
 
-from common.config import settings
-from common.consts import SrtString
+from app.common.config import settings
+from app.common.consts import SrtString
 
 blob_service_client = BlobServiceClient.from_connection_string(
     settings.AZURE_STORAGE_CONNECTION_STRING, credential=settings.BLOB_ACCOUNT_KEY

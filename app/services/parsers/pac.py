@@ -2,7 +2,7 @@ import string
 import sys
 import re
 
-from common.models.translation import SRTBlock
+from app.common.models.translation import SRTBlock
 
 CyrillicLetters = [" ",  # 0x20
                    "!",  # 0x21

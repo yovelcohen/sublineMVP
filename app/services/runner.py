@@ -3,7 +3,7 @@ from typing import Literal, Type
 import magic
 
 from xml.etree import ElementTree as ET  # noqa
-from services.parsers.format_handlers import SRTHandler, JSONHandler, QTextHandler, BaseHandler, XMLHandler
+from app.services.parsers.format_handlers import SRTHandler, JSONHandler, QTextHandler, BaseHandler, XMLHandler
 
 MIME_TYPES = Literal['xml', 'json', 'srt', 'qtext']
 

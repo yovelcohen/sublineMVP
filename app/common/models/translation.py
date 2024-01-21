@@ -13,9 +13,9 @@ from pymongo import IndexModel
 
 from srt import make_legal_content
 
-from common.models.base import BaseCreateUpdateDocument, document_alias_generator
-from common.models.core import Project
-from common.utils import timedelta_to_srt_timestamp
+from app.common.models.base import BaseCreateUpdateDocument, document_alias_generator
+from app.common.models.core import Project
+from app.common.utils import timedelta_to_srt_timestamp
 
 
 def is_v_symbol(field_name):

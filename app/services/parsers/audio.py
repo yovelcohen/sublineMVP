@@ -4,9 +4,9 @@ from pathlib import Path
 import ffmpeg
 from pydub import AudioSegment
 
-from common.config import settings
-from common.models.core import Project
-from common.utils import check_blob_exists, download_azure_blob
+from app.common.config import settings
+from app.common.models.core import Project
+from app.common.utils import check_blob_exists, download_azure_blob
 
 _container = settings.PROJECT_BLOB_CONTAINER
 

@@ -15,12 +15,12 @@ from pydantic import BaseModel, model_validator, Field
 from streamlit.runtime.uploaded_file_manager import UploadedFile
 
 from auth import get_authenticator
-from common.consts import SrtString
-from common.models.core import Ages, Genres, Project, Client, ClientChannel
-from common.config import mongodb_settings
-from common.db import init_db
-from common.models.translation import Translation
-from common.models.users import User
+from app.common.consts import SrtString
+from app.common.models.core import Ages, Genres, Project, Client, ClientChannel
+from app.common.config import mongodb_settings
+from app.common.db import init_db
+from app.common.models.translation import Translation
+from app.common.models.users import User
 from costs import costs_panel
 from new_comparsion import newest_ever_compare, TranslationFeedbackV2
 from new_stats import stats
