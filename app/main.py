@@ -57,6 +57,7 @@ if st.session_state["authentication_status"] == False:
     st.error('The username or password you have entered is invalid')
 
 
+@st.cache_resource
 def connect_DB():
     _docs, _db = asyncio.run(
         init_db(mongodb_settings, [Translation, TranslationFeedbackV2, Project, Client, ClientChannel, User])
@@ -157,15 +158,26 @@ class NameProject(Project):
     name: str
 
 
-def subtitles_viewer_from_db():
+async def _get_viewer_data():
+    fbs, projects = await asyncio.gather(
+        TranslationFeedbackV2.find_all().to_list(),
+        Project.find_all().project(Projection).to_list()
+
+    )
+
+
+@st.cache_data
+def get_viewer_data():
     if st.session_state.get('DB') is None:
         connect_DB()
+    ret = asyncio.run(_get_viewer_data())
+    return ret
 
-    existing_feedbacks = asyncio.run(TranslationFeedbackV2.find_all().to_list())
+
+def subtitles_viewer_from_db():
+    existing_feedbacks, projects = asyncio.run(get_viewer_data())
     names = [d.name for d in existing_feedbacks]
-    project_names = {
-        proj.id: proj.name for proj in asyncio.run(Project.find_all().project(Projection).to_list())
-    }
+    project_names = {proj.id: proj.name for proj in projects}
 
     existing, new = dict(), dict()
     for proj_id, _name in project_names.items():
