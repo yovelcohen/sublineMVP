@@ -10,10 +10,10 @@ from pydantic import BaseModel, Field
 
 import streamlit as st
 
-from app.common.config import mongodb_settings
-from app.common.db import init_db
-from app.common.models.core import Project, Client
-from app.common.models.translation import CostRecord, Translation, CostsConfig, Costs, ModelVersions
+from common.config import mongodb_settings
+from common.db import init_db
+from common.models.core import Project, Client
+from common.models.translation import CostRecord, Translation, CostsConfig, Costs, ModelVersions
 
 
 class TranslationProjection(BaseModel):

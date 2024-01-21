@@ -7,7 +7,7 @@ from beanie import Document, PydanticObjectId, Link
 from pydantic import Field, BaseModel, model_validator, ConfigDict, field_validator
 from pymongo import IndexModel
 
-from app.common.models.base import BaseDocument, document_alias_generator
+from common.models.base import BaseDocument, document_alias_generator
 
 
 class ClientTypes(str, Enum):

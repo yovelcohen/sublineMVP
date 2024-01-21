@@ -7,11 +7,11 @@ from xml.etree import ElementTree as ET
 import srt
 import webvtt
 
-from app.common.consts import SrtString, JsonStr, XMLString
-from app.common.models.translation import SRTBlock, Translation
-from app.common.utils import rows_to_srt
-from app.services.parsers.convertors import xml_to_srt
-from app.services.sync import sync_video_to_file
+from common.consts import SrtString, JsonStr, XMLString
+from common.models.translation import SRTBlock, Translation
+from common.utils import rows_to_srt
+from services.parsers.convertors import xml_to_srt
+from services.sync import sync_video_to_file
 
 
 class SubtitlesResults:

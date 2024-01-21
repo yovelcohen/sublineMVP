@@ -40,8 +40,8 @@ async def init_db(
 
 
 async def quickSetupUtil():
-    from app.common.config import mongodb_settings
-    from app.common.models.core import Client, ClientChannel, Project
-    from app.common.models.translation import Translation, CostRecord
+    from common.config import mongodb_settings
+    from common.models.core import Client, ClientChannel, Project
+    from common.models.translation import Translation, CostRecord
 
     await init_db(mongodb_settings, [Translation, CostRecord, CostRecord, Client, ClientChannel, Project])

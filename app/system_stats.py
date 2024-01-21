@@ -8,11 +8,11 @@ import pandas as pd
 from beanie import Link
 from pydantic import BaseModel
 
-from app.common.config import mongodb_settings
-from app.common.db import init_db
-from app.common.models.core import Project
-from app.common.models.translation import ModelVersions, Translation
-from app.common.utils import pct
+from common.config import mongodb_settings
+from common.db import init_db
+from common.models.core import Project
+from common.models.translation import ModelVersions, Translation
+from common.utils import pct
 from new_comparsion import TranslationFeedbackV2
 
 import streamlit as st

@@ -9,9 +9,9 @@ import typing_extensions
 from beanie import PydanticObjectId, Document
 from pydantic import Field
 
-from app.common.models.core import Project
-from app.common.models.translation import Translation, ModelVersions, is_multi_modal
-from app.common.utils import rows_to_srt
+from common.models.core import Project
+from common.models.translation import Translation, ModelVersions, is_multi_modal
+from common.utils import rows_to_srt
 
 
 def SelectBoxColumn(label, labels):

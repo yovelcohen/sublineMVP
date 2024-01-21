@@ -2,7 +2,7 @@ import math
 import re
 from typing import cast
 
-from app.common.consts import XMLString, SrtString
+from common.consts import XMLString, SrtString
 
 SUPPORTED_EXTENSIONS = [".xml", ".vtt"]
 
