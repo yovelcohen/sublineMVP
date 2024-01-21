@@ -1,7 +1,7 @@
 import asyncio
 import datetime
 import logging
-from typing import Self
+from typing import Self, NotRequired
 
 import pandas as pd
 import streamlit as st
@@ -24,6 +24,7 @@ class MarkedRow(typing_extensions.TypedDict):
     error: str
     original: str
     translation: str | None
+    fixed: NotRequired[bool]
 
 
 class TranslationFeedbackV2(Document):

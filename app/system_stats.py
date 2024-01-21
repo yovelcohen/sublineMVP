@@ -57,10 +57,6 @@ STATES_MAP = {
 
 
 async def _get_translations_stats() -> list[dict]:
-    if st.session_state.get('DB') is None:
-        db, docs = asyncio.run(init_db(mongodb_settings, [Translation]))
-        st.session_state['DB'] = db
-
     translations = await Translation.find_all().to_list()
 
     def get_took(t):
@@ -98,12 +94,24 @@ async def _get_translations_stats() -> list[dict]:
     ]
 
 
-async def get_stats() -> list[Stats]:
+async def _get_data():
     if st.session_state.get('DB') is None:
-        await init_db(mongodb_settings, [TranslationFeedbackV2])
+        db, docs = asyncio.run(init_db(mongodb_settings, [Translation, TranslationFeedbackV2]))
+        st.session_state['DB'] = db
+    data, fbs = await asyncio.gather(
+        _get_translations_stats(), TranslationFeedbackV2.find_all(fetch_links=True).to_list()
+    )
+    return data, fbs
 
-    q = TranslationFeedbackV2.find_all(fetch_links=True)
-    data = await _get_translations_stats()
+
+@st.cache_data
+def get_data():
+    data, fbs = asyncio.run(_get_data())
+    return data, fbs
+
+
+async def get_stats() -> list[Stats]:
+    data, fbs = get_data()
     by_v = {
         v: {'feedbacks': list(), 'sum_checked_rows': 0, 'all_names': set(), 'translations': [],
             'name_to_count': dict(), 'by_error': defaultdict(list), 'count': 0}
@@ -111,7 +119,7 @@ async def get_stats() -> list[Stats]:
     }
 
     # TODO: Needs to be revamped for TranslationFeedbackV2
-    async for feedback in q:
+    for feedback in fbs:
         version = feedback.version
         by_v[version]['feedbacks'].extend(feedback.marked_rows)
         by_v[version]['sum_checked_rows'] += feedback.total_rows
