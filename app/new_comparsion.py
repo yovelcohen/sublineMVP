@@ -259,8 +259,8 @@ async def _newest_ever_compare_logic(project, translations: list[Translation], f
 
 
 @st.cache_data
-def get_data(project_id):
-    proj, ts, fbs = asyncio.run(get_compare_data(project_id))
+def get_data(_project_id):
+    proj, ts, fbs = asyncio.run(get_compare_data(_project_id))
     return proj, ts, fbs
 
 
