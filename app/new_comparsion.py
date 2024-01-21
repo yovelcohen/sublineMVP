@@ -258,7 +258,13 @@ async def _newest_ever_compare_logic(project, translations: list[Translation], f
             )
 
 
-def newest_ever_compare(project_id):
+@st.cache_data
+def get_data(project_id):
     proj, ts, fbs = asyncio.run(get_compare_data(project_id))
+    return proj, ts, fbs
+
+
+def newest_ever_compare(project_id):
+    proj, ts, fbs = get_data(project_id)
     existing_feedbacks: dict[ModelVersions, TranslationFeedbackV2] = {fb.version: fb for fb in fbs}
     return asyncio.run(_newest_ever_compare_logic(project=proj, translations=ts, feedbacks=existing_feedbacks))
