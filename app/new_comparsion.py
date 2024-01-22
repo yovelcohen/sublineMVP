@@ -261,6 +261,9 @@ async def _newest_ever_compare_logic(project, translations: list[Translation], f
 
 @st.cache_data
 def get_data(project_id: str):
+    if st.session_state.get('DB') is None:
+        from app.main import connect_DB
+        connect_DB()
     proj, ts, fbs = asyncio.run(get_compare_data(project_id))
     return proj, ts, fbs
 

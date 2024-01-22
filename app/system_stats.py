@@ -10,7 +10,7 @@ from pydantic import BaseModel
 
 from common.config import mongodb_settings
 from common.db import init_db
-from common.models.core import Project
+from common.models.core import Project, Client
 from common.models.translation import ModelVersions, Translation
 from common.utils import pct
 from new_comparsion import TranslationFeedbackV2
@@ -58,24 +58,17 @@ STATES_MAP = {
 
 async def _get_translations_stats() -> list[dict]:
     translations = await Translation.find_all().to_list()
+    projects = {proj.id: proj.name for proj in await Project.find_all().to_list()}
 
     def get_took(t):
         minutes, seconds = divmod(t, 60)
         return "{:02d}:{:02d}".format(int(minutes), int(seconds))
 
-    async def get_name_from_proj(obj_: Translation):
-        if isinstance(obj_.project, Link):
-            project: Project = await obj_.project.fetch()
-            if isinstance(project, Link):
-                project: Project = await project.fetch()
-            return project.name
-        return obj_.project.name
-
     translations: list[Translation]
     return [
         {
             'id': translation.id,
-            'name': await get_name_from_proj(translation),
+            'name': projects[translation.project_id],
             'Amount Rows': len(translation.subtitles),
             'State': STATES_MAP[translation.state.value],
             'Took': get_took(translation.took),
@@ -96,7 +89,7 @@ async def _get_translations_stats() -> list[dict]:
 
 async def _get_data():
     if st.session_state.get('DB') is None:
-        db, docs = asyncio.run(init_db(mongodb_settings, [Translation, TranslationFeedbackV2]))
+        db, docs = await init_db(mongodb_settings, [Translation, TranslationFeedbackV2, Project, Client])
         st.session_state['DB'] = db
     data, fbs = await asyncio.gather(
         _get_translations_stats(), TranslationFeedbackV2.find_all(fetch_links=True).to_list()
@@ -105,13 +98,12 @@ async def _get_data():
 
 
 @st.cache_data
-def get_data():
+def get_data_for_stats():
     data, fbs = asyncio.run(_get_data())
     return data, fbs
 
 
-async def get_stats() -> list[Stats]:
-    data, fbs = get_data()
+async def get_stats(data, fbs) -> list[Stats]:
     by_v = {
         v: {'feedbacks': list(), 'sum_checked_rows': 0, 'all_names': set(), 'translations': [],
             'name_to_count': dict(), 'by_error': defaultdict(list), 'count': 0}
@@ -230,7 +222,8 @@ def stats_for_version(stats: Stats):
 
 
 def view_stats():
-    stats_list = asyncio.run(get_stats())
+    data, fbs = get_data_for_stats()
+    stats_list = asyncio.run(get_stats(data, fbs))
     translations, errorCounts, errors = list(), dict(), dict()
     for stat in stats_list:
         translations.extend(stat.translations)

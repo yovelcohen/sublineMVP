@@ -1,10 +1,7 @@
-import datetime
-import json
 import logging
-from dataclasses import dataclass
 from datetime import timedelta
 from enum import Enum
-from typing import TypedDict, Final, Self, NoReturn
+from typing import Final, Self, NoReturn
 
 import pymongo
 from beanie import Document, Link
@@ -275,7 +272,7 @@ is_multi_modal = lambda v: v.value.startswith('v3') or '.3.' in v.value
 
 
 class Translation(BaseCreateUpdateDocument):
-    engine_version: ModelVersions = Field(default=ModelVersions.V032, alias='modelVersion')
+    engine_version: ModelVersions = Field(default=ModelVersions.V039, alias='modelVersion')
     project: Link[Project]
     target_language: str
 

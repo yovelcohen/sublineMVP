@@ -1,6 +1,7 @@
 import asyncio
 import io
 import zipfile
+from collections import defaultdict
 
 import pandas as pd
 import streamlit as st
@@ -8,35 +9,35 @@ import streamlit as st
 import logging
 import streamlit.logger
 
-from beanie import PydanticObjectId
+from beanie import PydanticObjectId, Link
 from beanie.odm.operators.find.comparison import In
 
 from pydantic import BaseModel, model_validator, Field
 from streamlit.runtime.uploaded_file_manager import UploadedFile
 
-from auth import get_authenticator
 from common.consts import SrtString
 from common.models.core import Ages, Genres, Project, Client, ClientChannel
 from common.config import mongodb_settings
 from common.db import init_db
-from common.models.translation import Translation
+from common.models.translation import Translation, SRTBlock, ModelVersions
 from common.models.users import User
+
+# Streamlit Applications
+from auth import get_authenticator
 from costs import costs_panel
 from new_comparsion import newest_ever_compare, TranslationFeedbackV2
 from new_stats import stats
-from system_stats import get_stats, view_stats
+from system_stats import get_stats, view_stats, get_data_for_stats
 
 streamlit.logger.get_logger = logging.getLogger
 streamlit.logger.setup_formatter = None
 streamlit.logger.update_formatter = lambda *a, **k: None
 streamlit.logger.set_log_level = lambda *a, **k: None
-
-# Then set our logger in a normal way
 logging.basicConfig(
     level=logging.DEBUG,
     format="%(levelname)s %(asctime)s %(name)s:%(message)s",
     force=True,
-)  # Change these settings for your own purpose, but keep force=True at least.
+)
 
 streamlit_handler = logging.getLogger("streamlit")
 streamlit_handler.setLevel(logging.DEBUG)
@@ -46,13 +47,16 @@ logging.getLogger('watchdog.observers').setLevel(logging.INFO)
 
 logger = logging.getLogger(__name__)
 
-st.set_page_config(layout="wide")
+if not st.session_state.get('setPageConf') == 1:
+    st.set_page_config(layout="wide")
+    st.session_state['setPageConf'] = 1
 
 name, authentication_status, username = get_authenticator().login('Login', 'main')
 st.session_state["authentication_status"] = authentication_status
 
 if st.session_state["authentication_status"] == None:
     st.warning('Please enter your username and password')
+
 if st.session_state["authentication_status"] == False:
     st.error('The username or password you have entered is invalid')
 
@@ -82,39 +86,6 @@ class Projection(BaseModel):
             _id = data.pop('_id')
             data['id'] = _id
         return data
-
-
-GENRES_MAP = {member.name: member.value for member in Genres}  # noqa
-AGES_MAP = {
-    '0+': Ages.ZERO,
-    '3+': Ages.THREE,
-    '6+': Ages.SIX,
-    '12+': Ages.TWELVE,
-    '16+': Ages.SIXTEEN,
-    '18+': Ages.EIGHTEEN
-}
-
-
-def string_to_enum(value: str, enum_class):
-    for enum_member in enum_class:
-        if enum_member.value == value or enum_member.value == value.lower():
-            return enum_member
-    raise ValueError(f"{value} is not a valid value for {enum_class.__name__}")
-
-
-def download_button(_name: str, srt_string1: SrtString, srt_string2: SrtString = None):
-    zip_buffer = io.BytesIO()
-    with zipfile.ZipFile(zip_buffer, 'a', zipfile.ZIP_DEFLATED, False) as zip_file:
-        with io.BytesIO(srt_string1.encode('utf-8')) as srt1_buffer:
-            zip_file.writestr('subtitlesV1.srt', srt1_buffer.getvalue())
-        if srt_string2:
-            with io.BytesIO(srt_string2.encode('utf-8')) as srt2_buffer:
-                zip_file.writestr('subtitlesV2.srt', srt2_buffer.getvalue())
-
-    zip_buffer.seek(0)
-    _name = _name.replace(' ', '_').strip()
-    st.download_button(label='Download Zip', data=zip_buffer, file_name=f'{_name}_subtitles.zip',
-                       mime='application/zip')
 
 
 async def _delete_docs(to_delete):
@@ -158,13 +129,25 @@ class NameProject(Project):
     name: str
 
 
-async def _get_viewer_data():
-    fbs, projects = await asyncio.gather(
-        TranslationFeedbackV2.find_all().to_list(),
-        Project.find_all().project(Projection).to_list()
+class TranslationLight(BaseModel):
+    id: PydanticObjectId = Field(..., alias='_id')
+    project: Link[Project]
+    engine_version: ModelVersions = Field(default=ModelVersions.V039, alias='modelVersion')
 
+    @property
+    def project_id(self):
+        if isinstance(self.project, Link):
+            return self.project.ref.id
+        return self.project.id
+
+
+async def _get_viewer_data():
+    fbs, projects, translations = await asyncio.gather(
+        TranslationFeedbackV2.find_all().to_list(),
+        Project.find_all().project(Projection).to_list(),
+        Translation.find_all().project(TranslationLight).to_list()
     )
-    return fbs, projects
+    return fbs, projects, translations
 
 
 @st.cache_data
@@ -176,19 +159,28 @@ def get_viewer_data():
 
 
 def subtitles_viewer_from_db():
-    existing_feedbacks, projects = get_viewer_data()
+    existing_feedbacks, projects, translations = get_viewer_data()
     names = [d.name for d in existing_feedbacks]
-    project_names = {proj.id: proj.name for proj in projects}
+    proj_id_to_name = {proj.id: proj.name for proj in projects}
+    proj_name_to_id = {proj.name: proj.id for proj in projects}
+    proj_id_to_ts = defaultdict(list)
+    for ts in translations:
+        proj_id_to_ts[ts.project_id].append(ts)
 
     existing, new = dict(), dict()
-    for proj_id, _name in project_names.items():
+    for proj_id, _name in proj_id_to_name.items():
         if _name in names:
             existing[proj_id] = _name
         else:
             new[proj_id] = _name
 
+    def format_name(n):
+        _id = proj_name_to_id[n]
+        available_versions_repr = f'({", ".join([t.engine_version.value for t in proj_id_to_ts[_id]])})'
+        return f'{n} {available_versions_repr}'
+
     with st.form('forma'):
-        chosenObj = st.selectbox('Choose Translation', options=list(new.values()))
+        chosenObj = st.selectbox('Choose Translation', options=list(new.values()), format_func=format_name)
         revision = st.file_uploader('Additional Subtitles', type=['srt', 'xml', 'txt', 'nfs'])
         submit = st.form_submit_button('Get')
         if submit:
@@ -199,7 +191,7 @@ def subtitles_viewer_from_db():
                 st.session_state['file'] = string_data
 
     with st.form('forma2'):
-        chosenObj = st.selectbox('Update Existing Review', options=list(existing.values()))
+        chosenObj = st.selectbox('Update Existing Review', options=list(existing.values()), format_func=format_name)
         revision = st.file_uploader('Additional Subtitles', type=['srt', 'xml', 'txt', 'nfs'])
         submit = st.form_submit_button('Get')
         if submit:
@@ -215,7 +207,8 @@ def subtitles_viewer_from_db():
 
 
 def manage_existing():
-    data = asyncio.run(get_stats())
+    data, fbs = get_data_for_stats()
+    data = asyncio.run(get_stats(data, fbs))
     for _stats in data:
         st.header(_stats.version.value.upper())
         data = [
