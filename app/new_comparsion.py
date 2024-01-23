@@ -9,12 +9,12 @@ import typing_extensions
 from beanie import PydanticObjectId, Document
 from pydantic import Field
 
-from app.common.config import mongodb_settings
-from app.common.db import init_db
-from app.common.models.users import User
-from app.common.models.core import Project, ClientChannel, Client
-from app.common.models.translation import Translation, ModelVersions, is_multi_modal
-from app.common.utils import rows_to_srt
+from common.config import mongodb_settings
+from common.db import init_db
+from common.models.users import User
+from common.models.core import Project, ClientChannel, Client
+from common.models.translation import Translation, ModelVersions, is_multi_modal
+from common.utils import rows_to_srt
 
 TWO_HOURS = 60 * 60 * 2
 
