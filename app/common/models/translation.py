@@ -274,7 +274,7 @@ is_multi_modal = lambda v: v.value.startswith('v3') or '.3.' in v.value
 class Translation(BaseCreateUpdateDocument):
     engine_version: ModelVersions = Field(default=ModelVersions.V039, alias='modelVersion')
     project: Link[Project]
-    target_language: str
+    target_language: str | None
 
     subtitles: list[SRTBlock]  # map from index to SRTBlock
 
