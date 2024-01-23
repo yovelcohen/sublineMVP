@@ -27,7 +27,7 @@ from auth import get_authenticator
 from costs import costs_panel
 from new_comparsion import newest_ever_compare, TranslationFeedbackV2
 from new_stats import stats
-from system_stats import get_stats, view_stats, get_data_for_stats
+from system_stats import get_stats, view_stats, get_data_for_stats, TWO_HOURS
 
 streamlit.logger.get_logger = logging.getLogger
 streamlit.logger.setup_formatter = None
@@ -147,10 +147,10 @@ async def _get_viewer_data():
         Project.find_all().project(Projection).to_list(),
         Translation.find_all().project(TranslationLight).to_list()
     )
-    return fbs, projects, translations
+    return {'fbs': fbs, 'projects': projects, 'translations': translations}
 
 
-@st.cache_data
+@st.cache_data(ttl=TWO_HOURS)
 def get_viewer_data():
     if st.session_state.get('DB') is None:
         connect_DB()
@@ -159,7 +159,8 @@ def get_viewer_data():
 
 
 def subtitles_viewer_from_db():
-    existing_feedbacks, projects, translations = get_viewer_data()
+    ret = get_viewer_data()
+    existing_feedbacks, projects, translations = ret['fbs'], ret['projects'], ret['translations']
     names = [d.name for d in existing_feedbacks]
     proj_id_to_name = {proj.id: proj.name for proj in projects}
     proj_name_to_id = {proj.name: proj.id for proj in projects}

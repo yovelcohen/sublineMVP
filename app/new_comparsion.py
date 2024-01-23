@@ -1,7 +1,7 @@
 import asyncio
 import datetime
 import logging
-from typing import Self, NotRequired, DefaultDict
+from typing import NotRequired, DefaultDict
 
 import pandas as pd
 import streamlit as st
@@ -9,9 +9,14 @@ import typing_extensions
 from beanie import PydanticObjectId, Document
 from pydantic import Field
 
-from common.models.core import Project
-from common.models.translation import Translation, ModelVersions, is_multi_modal
-from common.utils import rows_to_srt
+from app.common.config import mongodb_settings
+from app.common.db import init_db
+from app.common.models.users import User
+from app.common.models.core import Project, ClientChannel, Client
+from app.common.models.translation import Translation, ModelVersions, is_multi_modal
+from app.common.utils import rows_to_srt
+
+TWO_HOURS = 60 * 60 * 2
 
 
 def SelectBoxColumn(label, labels):
@@ -77,21 +82,19 @@ async def construct_comparison_df(
         'English': [row.content for row in first.subtitles]
     }
 
-    columnConfig = {
-        'English': st.column_config.TextColumn(width='large', disabled=True)
-    }
+    column_config = {'English': st.column_config.TextColumn(width='large', disabled=True)}
 
-    existing_errors_map: dict[OriginalContent, MarkedRow] = dict()
-    labels = ['Gender Mistake', 'Time Tenses', 'Names', 'Slang', 'Prepositions',
-              'Name "as is"', 'not fit in context', 'Plain Wrong Translation']
+    existing_errors_map: dict[OriginalContent, MarkedRow] = dict()  # noqa
+    labels = ['Gender Mistake', 'Time Tenses', 'Slang', 'Prepositions', 'Typo',
+              'Name "as is"', 'Not fit in context', 'Plain Wrong Translation']
     for v, t in version_to_translation.items():
         err_key = f'{v.value} Error'
-        columnConfig[err_key] = SelectBoxColumn(err_key, labels)
+        column_config[err_key] = SelectBoxColumn(err_key, labels)
         version_translation = [
             row.translations.selection if row.translations is not None else None for row in t.subtitles
         ]
         data[v.value] = version_translation
-        columnConfig[v.value] = st.column_config.TextColumn(width='large', disabled=True)
+        column_config[v.value] = st.column_config.TextColumn(width='large', disabled=True)
         error_cols.append(err_key)
 
         if v in existing_feedbacks:
@@ -109,7 +112,7 @@ async def construct_comparison_df(
             data[k] = v + ([None] * (maxlen - len(v)))
 
     df = pd.DataFrame(data)
-    return df, error_cols, columnConfig, existing_errors_map
+    return df, error_cols, column_config, existing_errors_map
 
 
 async def _update_results(
@@ -209,14 +212,14 @@ def _display_additional_variations(version_to_translation):
                     edited_df = st.data_editor(styled, use_container_width=True, column_config=conf)
 
 
-async def get_compare_data(project_id):
+async def get_compare_data(project_id) -> dict:
     project_id = PydanticObjectId(project_id)
     proj = await Project.get(project_id)
     ts, fbs = await asyncio.gather(
         Translation.find(Translation.project.id == project_id).to_list(),  # noqa
         TranslationFeedbackV2.find(TranslationFeedbackV2.name == proj.name).to_list()
     )
-    return proj, ts, fbs
+    return {'project': proj, 'translations': ts, 'feedbacks': fbs}
 
 
 async def _newest_ever_compare_logic(project, translations: list[Translation], feedbacks):
@@ -259,16 +262,24 @@ async def _newest_ever_compare_logic(project, translations: list[Translation], f
         st.cache_data.clear()
 
 
-@st.cache_data
+@st.cache_resource
+def connect_DB():
+    _docs, _db = asyncio.run(
+        init_db(mongodb_settings, [Translation, TranslationFeedbackV2, Project, Client, ClientChannel, User])
+    )
+    st.session_state['DB'] = _db
+    return _docs, _db
+
+
 def get_data(project_id: str):
-    if st.session_state.get('DB') is None:
-        from app.main import connect_DB
-        connect_DB()
-    proj, ts, fbs = asyncio.run(get_compare_data(project_id))
-    return proj, ts, fbs
+    ret = asyncio.run(get_compare_data(project_id))
+    return ret
 
 
 def newest_ever_compare(project_id):
-    proj, ts, fbs = get_data(str(project_id))
+    if st.session_state.get('DB') is None:
+        connect_DB()
+    ret = get_data(str(project_id))
+    proj, ts, fbs = ret['project'], ret['translations'], ret['feedbacks']
     existing_feedbacks: dict[ModelVersions, TranslationFeedbackV2] = {fb.version: fb for fb in fbs}
     return asyncio.run(_newest_ever_compare_logic(project=proj, translations=ts, feedbacks=existing_feedbacks))

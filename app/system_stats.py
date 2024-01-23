@@ -18,7 +18,7 @@ from new_comparsion import TranslationFeedbackV2
 import streamlit as st
 
 TEN_K, MILLION, BILLION = 10_000, 1_000_000, 1_000_000_000
-
+TWO_HOURS = 60 * 60 * 2
 
 def _format_number(num):
     if TEN_K <= num < MILLION:
@@ -97,7 +97,7 @@ async def _get_data():
     return data, fbs
 
 
-@st.cache_data
+@st.cache_data(ttl=TWO_HOURS)
 def get_data_for_stats():
     data, fbs = asyncio.run(_get_data())
     return data, fbs
