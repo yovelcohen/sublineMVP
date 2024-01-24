@@ -6,6 +6,7 @@ from typing import Literal
 
 import pandas as pd
 from beanie import Link
+from beanie.odm.operators.find.comparison import In
 from pydantic import BaseModel
 
 from common.config import mongodb_settings
@@ -19,6 +20,7 @@ import streamlit as st
 
 TEN_K, MILLION, BILLION = 10_000, 1_000_000, 1_000_000_000
 TWO_HOURS = 60 * 60 * 2
+THREE_MINUTES = 60 * 3
 
 
 def _format_number(num):
@@ -56,10 +58,13 @@ STATES_MAP = {
     'fa': 'Failed'
 }
 
+ALLOWED_VERSIONS = [v.value for v in (ModelVersions.V039, ModelVersions.V3, ModelVersions.V1)]
+
 
 async def _get_translations_stats() -> list[dict]:
-    translations = await Translation.find_all().to_list()
-    projects = {proj.id: proj.name for proj in await Project.find_all().to_list()}
+    translations = await Translation.find(In(Translation.engine_version, ALLOWED_VERSIONS)).to_list()
+    p_ids = list({t.project_id for t in translations})
+    projects = {proj.id: proj.name for proj in await Project.find(In(Project.id, p_ids)).to_list()}
 
     def get_took(t):
         minutes, seconds = divmod(t, 60)
@@ -99,12 +104,13 @@ async def _get_data():
         db, docs = await init_db(mongodb_settings, [Translation, TranslationFeedbackV2, Project, Client])
         st.session_state['DB'] = db
     data, fbs = await asyncio.gather(
-        _get_translations_stats(), TranslationFeedbackV2.find_all(fetch_links=True).to_list()
+        _get_translations_stats(),
+        TranslationFeedbackV2.find(In(TranslationFeedbackV2.version, ALLOWED_VERSIONS)).to_list()
     )
     return data, fbs
 
 
-@st.cache_data(ttl=TWO_HOURS)
+@st.cache_data(ttl=THREE_MINUTES)
 def get_data_for_stats():
     data, fbs = asyncio.run(_get_data())
     return data, fbs
