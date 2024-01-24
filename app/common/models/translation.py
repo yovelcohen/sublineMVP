@@ -1,7 +1,7 @@
 import logging
 from datetime import timedelta
 from enum import Enum
-from typing import Final, Self, NoReturn
+from typing import Final, Self, NoReturn, Iterable
 
 import pymongo
 from beanie import Document, Link
@@ -355,6 +355,69 @@ class Translation(BaseCreateUpdateDocument):
         for row in subtitles:
             row.content = row.content.strip()
         return subtitles
+
+
+class SpeakerUtterance(BaseModel):
+    id: int
+    start: timedelta | int | float
+    end: timedelta | int | float
+    text: str
+
+    @model_validator(mode='before')
+    @classmethod
+    def validate_time_stamps(cls, data: dict):
+        for k in ('start', 'end'):
+            if not isinstance(data[k], timedelta):
+                data[k] = timedelta(seconds=data[k])
+        return data
+
+
+class AudioIntel(BaseModel):
+    speakers: list[SpeakerUtterance]
+    description: str
+
+
+class Chunk(BaseModel):
+    id: int
+    rows: list[SRTBlock] | None = None
+    video_description: str | None = None
+    audio_intel: AudioIntel | None = None
+    sample_frames: list[str] = Field(default_factory=list)
+
+    def __eq__(self, other):
+        if not other:
+            return False
+        return self.id == other.id and self.start_time == other.start_time and self.end_time == other.end_time
+
+    @field_validator('rows', mode='before')
+    @classmethod
+    def validate_rows(cls, rows):
+        return sorted(rows, key=lambda row: row.index)
+
+    @classmethod
+    def lazy_init_from_rows(cls, rows: Iterable[SRTBlock], _id: int):
+        # TODO: TMP WORKAROUND Because of failed isinstance checks by pydantic validators on SRTBlock,
+        #       Those little fuckers fail because of delayed annotations and imports.
+        #       should be fixed when organizing the files.
+        klass = cls(id=_id)
+        klass.rows = sorted(list(rows), key=lambda row: row.index)
+        return klass
+
+    @property
+    def start_time(self) -> timedelta:
+        return self.rows[0].start
+
+    @property
+    def end_time(self) -> timedelta:
+        return self.rows[-1].end
+
+    @property
+    def min_index(self) -> int:
+        return self.rows[0].index
+
+    @property
+    def max_index(self) -> int:
+        return self.rows[-1].index
 
 
 CostFields = (

@@ -20,6 +20,7 @@ import streamlit as st
 TEN_K, MILLION, BILLION = 10_000, 1_000_000, 1_000_000_000
 TWO_HOURS = 60 * 60 * 2
 
+
 def _format_number(num):
     if TEN_K <= num < MILLION:
         return f"{num / 1000:.1f}k"
@@ -76,11 +77,17 @@ async def _get_translations_stats() -> list[dict]:
             'Delete': False,
             'Amount OG Characters': sum([len(r.content) for r in translation.subtitles]),
             'Amount Translated Characters': sum(
-                [len(r.translations.selection) for r in translation.subtitles if r.translations is not None]
+                [
+                    len(r.translations.selection) for r in translation.subtitles
+                    if r.translations is not None and r.translations.selection is not None
+                ]
             ),
             'Amount OG Words': sum([len(r.content.split()) for r in translation.subtitles]),
             'Amount Translated Words': sum(
-                [len(r.translations.selection.split()) for r in translation.subtitles if r.translations is not None]
+                [
+                    len(r.translations.selection.split()) for r in translation.subtitles
+                    if r.translations is not None and r.translations.selection is not None
+                ]
             )
         }
         for translation in translations

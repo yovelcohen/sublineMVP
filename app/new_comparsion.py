@@ -53,10 +53,11 @@ def pct(a, b):
     return round((a / b) * 100, 2)
 
 
-def _show_sidebar(project_name, target_language, available_versions):
+def _show_sidebar(project_name, project_id, target_language, available_versions):
     with st.sidebar:
         info = {
             'Name': project_name,
+            'Project ID': project_id,
             'Target Language': target_language,
             'Available Version': ', '.join([v.value for v in available_versions])
         }
@@ -227,7 +228,7 @@ async def _newest_ever_compare_logic(project, translations: list[Translation], f
     version_to_translation: dict[ModelVersions, Translation] = {t.engine_version: t for t in translations}
     first = list(version_to_translation.values())[0]
 
-    _show_sidebar(project_name, first.target_language, version_to_translation.keys())
+    _show_sidebar(project_name, project_id, first.target_language, version_to_translation.keys())
 
     df, error_cols, column_config, existing_errors_map = await construct_comparison_df(
         version_to_translation=version_to_translation, existing_feedbacks=feedbacks
