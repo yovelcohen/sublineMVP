@@ -123,7 +123,6 @@ async def get_stats(data, fbs) -> list[Stats]:
         for v in set([t['Engine Version'] for t in data])
     }
 
-    # TODO: Needs to be revamped for TranslationFeedbackV2
     for feedback in fbs:
         version = feedback.version
         by_v[version]['feedbacks'].extend(feedback.marked_rows)
@@ -194,8 +193,8 @@ def stats_for_version(stats: Stats):
         st.metric('Total Errors Count (Rows)', _format_number(total_errors), f'{stats.errorPct}%', delta_color='off')
         st.metric('Original Words Count', _format_number(stats.amountOgWords))
     with col4:
-        errors_pct = [err for err in df['Errors %'].to_list() if not isnan(err)]
-        errors = [err for err in df['Amount Errors'].to_list() if not isnan(err)]
+        errors_pct = [err for err in df['Errors %'].to_list() if not isnan(err) and err != 0.0]
+        errors = [err for err in df['Amount Errors'].to_list() if not isnan(err) and err != 0]
         st.metric(
             'Median Errors Count - Single Translation',
             statistics.median(errors),
