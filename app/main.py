@@ -50,6 +50,7 @@ logger = logging.getLogger(__name__)
 if not st.session_state.get('setPageConf') == 1:
     st.set_page_config(layout="wide")
     st.session_state['setPageConf'] = 1
+    st.cache_resource.clear()
 
 name, authentication_status, username = get_authenticator().login('Login', 'main')
 st.session_state["authentication_status"] = authentication_status
@@ -63,6 +64,7 @@ if st.session_state["authentication_status"] == False:
 
 @st.cache_resource
 def connect_DB():
+    st.cache_data.clear()
     _docs, _db = asyncio.run(
         init_db(mongodb_settings, [Translation, TranslationFeedbackV2, Project, Client, ClientChannel, User])
     )
