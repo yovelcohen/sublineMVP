@@ -27,7 +27,7 @@ from auth import get_authenticator
 from costs import costs_panel
 from new_comparsion import newest_ever_compare, TranslationFeedbackV2
 from new_stats import stats
-from system_stats import get_stats, view_stats, get_data_for_stats, TWO_HOURS
+from system_stats import get_stats, view_stats, get_data_for_stats, THREE_MINUTES
 
 streamlit.logger.get_logger = logging.getLogger
 streamlit.logger.setup_formatter = None
@@ -144,15 +144,18 @@ class TranslationLight(BaseModel):
 
 
 async def _get_viewer_data():
-    fbs, projects, translations = await asyncio.gather(
+    translations = await Translation.find(
+        In(Translation.engine_version, [ModelVersions.V039.value, ModelVersions.V1.value, ModelVersions.V3.value])
+    ).project(TranslationLight).to_list()
+    pids = {t.project_id for t in translations}
+    fbs, projects = await asyncio.gather(
         TranslationFeedbackV2.find_all().to_list(),
-        Project.find_all().project(Projection).to_list(),
-        Translation.find_all().project(TranslationLight).to_list()
+        Project.find(In(Project.id, list(pids))).project(Projection).to_list(),
     )
     return {'fbs': fbs, 'projects': projects, 'translations': translations}
 
 
-@st.cache_data(ttl=TWO_HOURS)
+@st.cache_data(ttl=THREE_MINUTES)
 def get_viewer_data():
     if st.session_state.get('DB') is None:
         connect_DB()

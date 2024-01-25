@@ -51,7 +51,7 @@ async def _costs_panel():
     costs: list[CostRecord]
 
     names = {proj.id: proj.name for proj in await Project.find_all().to_list()}
-    vs = [v.value for v in (ModelVersions.V031, ModelVersions.V032, ModelVersions.V033, ModelVersions.V034)]
+    vs = [v.value for v in (ModelVersions.V039,)]
     id_to_translation: dict[PydanticObjectId, Translation] = {
         tr.id: tr for tr in await Translation.find(In(Translation.engine_version, vs)).to_list()
     }
@@ -72,9 +72,9 @@ async def _costs_panel():
             di[
                 'Assembly AI Cost (seconds)'] = f'{format_multiplied(rec_costs.assembly_ai_second, CostsConfig.assembly_ai_second)} (t: {record.costs.assembly_ai_second})'
             di[
-                'Assembly AI Input Cost (tokens)'] = f'{format_multiplied(Costs.units_of_1k(rec_costs.lemur_input_tokens), CostsConfig.lemur_input_tokens)} (t: {record.costs.assembly_ai_input_token})'
+                'Assembly AI Input Cost (tokens)'] = f'{format_multiplied(Costs.units_of_1k(rec_costs.lemur_input_tokens), CostsConfig.lemur_input_tokens)} (t: {record.costs.lemur_input_tokens})'
             di[
-                'Assembly AI Input Cost (tokens)'] = f'{format_multiplied(Costs.units_of_1k(rec_costs.lemur_completion_tokens), CostsConfig.lemur_output_tokens)} (t: {record.costs.assembly_ai_input_token})'
+                'Assembly AI Input Cost (tokens)'] = f'{format_multiplied(Costs.units_of_1k(rec_costs.lemur_completion_tokens), CostsConfig.lemur_output_tokens)} (t: {record.costs.lemur_completion_tokens})'
 
             data.append(di)
 
