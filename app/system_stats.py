@@ -102,10 +102,6 @@ async def _get_translations_stats() -> list[dict]:
 
 
 async def _get_data():
-    if st.session_state.get('DB') is None:
-        db, docs = await init_db(mongodb_settings, [Translation, TranslationFeedbackV2, Project, Client])
-        st.session_state['DB'] = db
-
     data, fbs = await asyncio.gather(
         _get_translations_stats(),
         TranslationFeedbackV2.find(In(TranslationFeedbackV2.version, ALLOWED_VERSIONS)).to_list()
