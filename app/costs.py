@@ -80,11 +80,15 @@ async def _costs_panel():
 
     df = pd.DataFrame(data)
     st.data_editor(df, disabled=True, use_container_width=True)
-    st.info(
-        """
-        For OpenAI and Assembly AI, the cost is N $ per 1k tokens. so the token count in the brackets is multiplied * 1000.
-        For Assembly AI's transcription, which is mandatory in order to access the Lemur LLM, the cost is N $ per 1k seconds. so the seconds count in the brackets is multiplied * 1000. 
-        """
+    st.text(
+        """------------------------------------------------
+For OpenAI and Assembly AI, the cost is N $ per 1k tokens. 
+So the token count in the brackets is multiplied * 1000.
+
+For Assembly AI's transcription, which is mandatory in order 
+to access the Lemur LLM, the cost is N $ per 1k seconds. 
+So the seconds count in the brackets is multiplied * 1000.
+"""
     )
 
 
