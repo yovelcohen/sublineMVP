@@ -12,7 +12,7 @@ from pydantic import BaseModel
 from common.config import mongodb_settings
 from common.db import init_db
 from common.models.core import Project, Client
-from common.models.translation import ModelVersions, Translation
+from common.models.translation import ModelVersions, Translation, TranslationStates
 from common.utils import pct
 from new_comparsion import TranslationFeedbackV2
 
@@ -78,6 +78,8 @@ async def _get_translations_stats() -> list[dict]:
             'Amount Rows': len(translation.subtitles),
             'State': STATES_MAP[translation.state.value],
             'Took': get_took(translation.took),
+            'Translated Rows in %': (100.0 if translation.state == TranslationStates.COMPLETED
+                                     else pct(len(translation.rows_with_translation), len(translation.subtitles))),
             'Engine Version': translation.engine_version.value,
             'Delete': False,
             'Amount OG Characters': sum([len(r.content) for r in translation.subtitles]),
@@ -103,6 +105,7 @@ async def _get_data():
     if st.session_state.get('DB') is None:
         db, docs = await init_db(mongodb_settings, [Translation, TranslationFeedbackV2, Project, Client])
         st.session_state['DB'] = db
+
     data, fbs = await asyncio.gather(
         _get_translations_stats(),
         TranslationFeedbackV2.find(In(TranslationFeedbackV2.version, ALLOWED_VERSIONS)).to_list()
@@ -178,8 +181,9 @@ def stats_for_version(stats: Stats):
         i.pop('Delete', None)
 
     df = pd.DataFrame(data)
-    df = df[['name', 'State', 'Took', 'Engine Version', 'Reviewed', 'Amount Rows', 'Amount Errors', 'Errors %',
-             'Amount OG Words', 'Amount Translated Words', 'Amount OG Characters', 'Amount Translated Characters']]
+    df = df[['name', 'State', 'Engine Version', 'Translated Rows in %', 'Reviewed', 'Amount Rows',
+             'Amount Errors', 'Errors %', 'Amount OG Words', 'Amount Translated Words',
+             'Amount OG Characters', 'Amount Translated Characters']]
     df['Amount Errors'] = df['Amount Errors'].apply(lambda x: int(x) if not isnan(x) else x)
     df = df.round(2)
 
