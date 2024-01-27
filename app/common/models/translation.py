@@ -264,6 +264,8 @@ class ModelVersions(str, Enum):
     V037 = 'v0.3.7'
     V038 = 'v0.3.8'
     V039 = 'v0.3.9'
+    SBS_V1 = 'sbs-v0.0.1'
+    V039_CL = 'v0.3.9-cl'
 
     LATEST = V039
 
