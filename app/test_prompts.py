@@ -1,10 +1,9 @@
 import json_repair
 import openai
 import streamlit as st
-from anthropic import AsyncAnthropic, Anthropic
-from anthropic.types.beta import Message
+from anthropic import Anthropic
 
-from app.common.models.translation import Chunk
+from common.models.translation import Chunk
 
 chunks = []
 ANTHROPIC_API_KEY: str = "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"

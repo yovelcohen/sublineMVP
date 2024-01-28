@@ -15,13 +15,12 @@ from beanie.odm.operators.find.comparison import In
 from pydantic import BaseModel, model_validator, Field
 from streamlit.runtime.uploaded_file_manager import UploadedFile
 
-from app.services.parsers.convertors import xml_to_srt
-from app.services.parsers.format_handlers import srt_to_rows
-from common.consts import SrtString
-from common.models.core import Ages, Genres, Project, Client, ClientChannel
+from services.parsers.convertors import xml_to_srt
+from services.parsers.format_handlers import srt_to_rows
+from common.models.core import Project, Client, ClientChannel
 from common.config import mongodb_settings
 from common.db import init_db
-from common.models.translation import Translation, SRTBlock, ModelVersions
+from common.models.translation import Translation, ModelVersions
 from common.models.users import User
 
 # Streamlit Applications
