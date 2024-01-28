@@ -215,7 +215,7 @@ def subtitles_viewer_from_db():
 
     if 'projectId' in st.session_state:
         project_id: str = st.session_state['projectId']
-        newest_ever_compare(project_id, st.session_state['file'])
+        newest_ever_compare(project_id, st.session_state.get('file', None))
 
 
 def manage_existing():
