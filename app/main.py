@@ -200,7 +200,6 @@ def subtitles_viewer_from_db():
         if submit:
             _id = [k for k, v in new.items() if v == chosenObj][0]
             st.session_state['projectId'] = _id
-            string_data = _parse_file_upload(revision)
             if revision:
                 st.session_state['file'] = parse_file(revision)
 
