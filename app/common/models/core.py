@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pymongo
 from beanie import Document, PydanticObjectId, Link
-from pydantic import Field, BaseModel, model_validator, ConfigDict, field_validator
+from pydantic import Field, BaseModel, model_validator, ConfigDict
 from pymongo import IndexModel
 
 from common.models.base import BaseDocument, document_alias_generator

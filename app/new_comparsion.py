@@ -1,6 +1,7 @@
 import asyncio
 import datetime
 import logging
+import re
 from typing import NotRequired, DefaultDict
 
 import pandas as pd
@@ -13,7 +14,7 @@ from common.config import mongodb_settings
 from common.db import init_db
 from common.models.users import User
 from common.models.core import Project, ClientChannel, Client
-from common.models.translation import Translation, ModelVersions, is_multi_modal
+from common.models.translation import Translation, ModelVersions, is_multi_modal, SRTBlock
 from common.utils import rows_to_srt
 
 TWO_HOURS = 60 * 60 * 2
@@ -72,9 +73,17 @@ def _show_sidebar(project_name, project_id, target_language, available_versions)
             )
 
 
+tag_re = re.compile(r'<[^>]+>')
+
+
+def strip_tags(xml_str):
+    return tag_re.sub('', xml_str)
+
+
 async def construct_comparison_df(
         version_to_translation: dict[ModelVersions, Translation],
-        existing_feedbacks: dict[ModelVersions, TranslationFeedbackV2]
+        existing_feedbacks: dict[ModelVersions, TranslationFeedbackV2],
+        extra_rows: list[SRTBlock] | None = None
 ):
     first = list(version_to_translation.values())[0]
     error_cols = list()
@@ -82,6 +91,8 @@ async def construct_comparison_df(
         'Time Stamp': [f'{row.start} --> {row.end}' for row in first.subtitles],
         'English': [row.content for row in first.subtitles]
     }
+    if extra_rows:
+        data['Uploaded Subtitles'] = [strip_tags(row.content) for row in extra_rows]
 
     column_config = {'English': st.column_config.TextColumn(width='large', disabled=True)}
 
@@ -223,7 +234,7 @@ async def get_compare_data(project_id) -> dict:
     return {'project': proj, 'translations': ts, 'feedbacks': fbs}
 
 
-async def _newest_ever_compare_logic(project, translations: list[Translation], feedbacks):
+async def _newest_ever_compare_logic(project, translations: list[Translation], feedbacks, extra_rows=None):
     project_id, project_name = project.id, project.name
     version_to_translation: dict[ModelVersions, Translation] = {t.engine_version: t for t in translations}
     first = list(version_to_translation.values())[0]
@@ -231,7 +242,7 @@ async def _newest_ever_compare_logic(project, translations: list[Translation], f
     _show_sidebar(project_name, project_id, first.target_language, version_to_translation.keys())
 
     df, error_cols, column_config, existing_errors_map = await construct_comparison_df(
-        version_to_translation=version_to_translation, existing_feedbacks=feedbacks
+        version_to_translation=version_to_translation, existing_feedbacks=feedbacks, extra_rows=extra_rows
     )
     edited_df = st.data_editor(df, column_config=column_config, use_container_width=True)
 
@@ -277,10 +288,11 @@ def get_data(project_id: str):
     return ret
 
 
-def newest_ever_compare(project_id):
+def newest_ever_compare(project_id, extra_rows: list[SRTBlock] | None = None):
     if st.session_state.get('DB') is None:
         connect_DB()
     ret = get_data(str(project_id))
     proj, ts, fbs = ret['project'], ret['translations'], ret['feedbacks']
     existing_feedbacks: dict[ModelVersions, TranslationFeedbackV2] = {fb.version: fb for fb in fbs}
-    return asyncio.run(_newest_ever_compare_logic(project=proj, translations=ts, feedbacks=existing_feedbacks))
+    return asyncio.run(_newest_ever_compare_logic(project=proj, translations=ts, feedbacks=existing_feedbacks,
+                                                  extra_rows=extra_rows))

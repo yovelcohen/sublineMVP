@@ -15,6 +15,8 @@ from beanie.odm.operators.find.comparison import In
 from pydantic import BaseModel, model_validator, Field
 from streamlit.runtime.uploaded_file_manager import UploadedFile
 
+from app.services.parsers.convertors import xml_to_srt
+from app.services.parsers.format_handlers import srt_to_rows
 from common.consts import SrtString
 from common.models.core import Ages, Genres, Project, Client, ClientChannel
 from common.config import mongodb_settings
@@ -185,6 +187,13 @@ def subtitles_viewer_from_db():
         available_versions_repr = f'({", ".join([t.engine_version.value for t in proj_id_to_ts[_id]])})'
         return f'{n} {available_versions_repr}'
 
+    def parse_file(f):
+        string_data = _parse_file_upload(f)
+        if f.name.endswith('nfs') or f.name.endswith('xml'):
+            string_data = xml_to_srt(string_data)
+        rows = srt_to_rows(string_data)
+        return rows
+
     with st.form('forma'):
         chosenObj = st.selectbox('Choose Translation', options=list(new.values()), format_func=format_name)
         revision = st.file_uploader('Additional Subtitles', type=['srt', 'xml', 'txt', 'nfs'])
@@ -192,9 +201,9 @@ def subtitles_viewer_from_db():
         if submit:
             _id = [k for k, v in new.items() if v == chosenObj][0]
             st.session_state['projectId'] = _id
+            string_data = _parse_file_upload(revision)
             if revision:
-                string_data = _parse_file_upload(revision)
-                st.session_state['file'] = string_data
+                st.session_state['file'] = parse_file(revision)
 
     with st.form('forma2'):
         chosenObj = st.selectbox('Update Existing Review', options=list(existing.values()), format_func=format_name)
@@ -204,12 +213,11 @@ def subtitles_viewer_from_db():
             _id = [k for k, v in existing.items() if v == chosenObj][0]
             st.session_state['projectId'] = _id
             if revision:
-                string_data = _parse_file_upload(revision)
-                st.session_state['file'] = string_data
+                st.session_state['file'] = parse_file(revision)
 
     if 'projectId' in st.session_state:
         project_id: str = st.session_state['projectId']
-        newest_ever_compare(project_id)
+        newest_ever_compare(project_id, st.session_state['file'])
 
 
 def manage_existing():
