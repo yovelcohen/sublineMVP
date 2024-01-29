@@ -2,7 +2,8 @@ import asyncio
 import datetime
 import logging
 import re
-from typing import NotRequired, DefaultDict
+from math import isnan
+from typing import NotRequired, DefaultDict, Callable
 
 import pandas as pd
 import streamlit as st
@@ -54,16 +55,44 @@ def pct(a, b):
     return round((a / b) * 100, 2)
 
 
-def _show_sidebar(project_name, project_id, target_language, available_versions):
+def _show_sidebar(
+        project_name: str,
+        project_id: PydanticObjectId | str,
+        target_language: str,
+        available_versions: list,
+        feedbacks: dict[ModelVersions, TranslationFeedbackV2]
+):
+    by_error_count = {v: {} for v in feedbacks.keys()}
+    for v, fbs in feedbacks.items():
+        for row in fbs.marked_rows:
+            err = row['error']
+            if err not in by_error_count[v]:
+                by_error_count[v][err] = 1
+            else:
+                by_error_count[v][err] += 1
+
+    amount = list(feedbacks.values())[0].total_rows
+
     with st.sidebar:
         info = {
             'Name': project_name,
             'Project ID': project_id,
             'Target Language': target_language,
-            'Available Version': ', '.join([v.value for v in available_versions])
+            'Available Version': ', '.join([v.value for v in available_versions]),
+            'Total Rows Count': amount
         }
         for name, val in info.items():
             st.info(f'{name}: {val}')
+
+        st.divider()
+        st.header('Errors Count', divider='orange')
+        for version, counts in by_error_count.items():
+            fb = feedbacks[version]
+            st.subheader(
+                f'{version.value} Errors - {len(fb.marked_rows)} ({pct(len(fb.marked_rows), amount)} %)', divider='rainbow'
+            )
+            repr_obj = '  \n'.join([f'{err} - {count}' for err, count in counts.items()])
+            st.info(repr_obj)
 
         if any([is_multi_modal(v) for v in available_versions]):
             st.divider()
@@ -239,7 +268,7 @@ async def _newest_ever_compare_logic(project, translations: list[Translation], f
     version_to_translation: dict[ModelVersions, Translation] = {t.engine_version: t for t in translations}
     first = list(version_to_translation.values())[0]
 
-    _show_sidebar(project_name, project_id, first.target_language, version_to_translation.keys())
+    _show_sidebar(project_name, project_id, first.target_language, version_to_translation.keys(), feedbacks)
 
     df, error_cols, column_config, existing_errors_map = await construct_comparison_df(
         version_to_translation=version_to_translation, existing_feedbacks=feedbacks, extra_rows=extra_rows
@@ -294,5 +323,6 @@ def newest_ever_compare(project_id, extra_rows: list[SRTBlock] | None = None):
     ret = get_data(str(project_id))
     proj, ts, fbs = ret['project'], ret['translations'], ret['feedbacks']
     existing_feedbacks: dict[ModelVersions, TranslationFeedbackV2] = {fb.version: fb for fb in fbs}
-    return asyncio.run(_newest_ever_compare_logic(project=proj, translations=ts, feedbacks=existing_feedbacks,
-                                                  extra_rows=extra_rows))
+    return asyncio.run(
+        _newest_ever_compare_logic(project=proj, translations=ts, feedbacks=existing_feedbacks, extra_rows=extra_rows)
+    )

@@ -1,6 +1,4 @@
 import asyncio
-import io
-import zipfile
 from collections import defaultdict
 
 import pandas as pd

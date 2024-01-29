@@ -1,8 +1,9 @@
 from datetime import datetime
+from typing import Any
 
-from beanie import Document
+from beanie import Document, Link
 from beanie.odm.documents import json_schema_extra
-from pydantic import ConfigDict, Field
+from pydantic import ConfigDict, Field, model_validator
 from pydantic.alias_generators import to_camel
 
 
