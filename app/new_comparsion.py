@@ -60,39 +60,45 @@ def _show_sidebar(
         project_id: PydanticObjectId | str,
         target_language: str,
         available_versions: list,
-        feedbacks: dict[ModelVersions, TranslationFeedbackV2]
+        feedbacks: dict[ModelVersions, TranslationFeedbackV2] | None = None
 ):
-    by_error_count = {v: {} for v in feedbacks.keys()}
-    for v, fbs in feedbacks.items():
-        for row in fbs.marked_rows:
-            err = row['error']
-            if err not in by_error_count[v]:
-                by_error_count[v][err] = 1
-            else:
-                by_error_count[v][err] += 1
+    amount, by_error_count = None, None
+    if feedbacks:
+        by_error_count = {v: {} for v in feedbacks.keys()}
+        for v, fbs in feedbacks.items():
+            for row in fbs.marked_rows:
+                err = row['error']
+                if err not in by_error_count[v]:
+                    by_error_count[v][err] = 1
+                else:
+                    by_error_count[v][err] += 1
 
-    amount = list(feedbacks.values())[0].total_rows
+        amount = list(feedbacks.values())[0].total_rows
 
     with st.sidebar:
         info = {
             'Name': project_name,
             'Project ID': project_id,
             'Target Language': target_language,
-            'Available Version': ', '.join([v.value for v in available_versions]),
-            'Total Rows Count': amount
+            'Available Version': ', '.join([v.value for v in available_versions])
         }
+        if amount is not None:
+            info['Amount Errors'] = amount
+
         for name, val in info.items():
             st.info(f'{name}: {val}')
 
-        st.divider()
-        st.header('Errors Count', divider='orange')
-        for version, counts in by_error_count.items():
-            fb = feedbacks[version]
-            st.subheader(
-                f'{version.value} Errors - {len(fb.marked_rows)} ({pct(len(fb.marked_rows), amount)} %)', divider='rainbow'
-            )
-            repr_obj = '  \n'.join([f'{err} - {count}' for err, count in counts.items()])
-            st.info(repr_obj)
+        if by_error_count is not None:
+            st.divider()
+            st.header('Errors Count', divider='orange')
+            for version, counts in by_error_count.items():
+                fb = feedbacks[version]
+                st.subheader(
+                    f'{version.value} Errors - {len(fb.marked_rows)} ({pct(len(fb.marked_rows), amount)} %)',
+                    divider='rainbow'
+                )
+                repr_obj = '  \n'.join([f'{err} - {count}' for err, count in counts.items()])
+                st.info(repr_obj)
 
         if any([is_multi_modal(v) for v in available_versions]):
             st.divider()
