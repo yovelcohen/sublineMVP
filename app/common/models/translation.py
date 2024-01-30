@@ -290,6 +290,8 @@ class TranslationState(BaseModel):
     audio_flow_execution_id: str | None = None
     state: TranslationStates = TranslationStates.PENDING
 
+    model_config = ConfigDict(alias_generator=document_alias_generator, populate_by_name=True)
+
 
 class Translation(BaseCreateUpdateDocument):
     engine_version: ModelVersions = Field(default=ModelVersions.V034, alias='modelVersion')
