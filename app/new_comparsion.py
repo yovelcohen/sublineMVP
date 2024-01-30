@@ -82,7 +82,7 @@ def _show_sidebar(
             'Available Version': ', '.join([v.value for v in available_versions])
         }
         if amount is not None:
-            info['Amount Errors'] = amount
+            info['Amount Rows'] = amount
 
         for name, val in info.items():
             st.info(f'{name}: {val}')

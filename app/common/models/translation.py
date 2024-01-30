@@ -285,12 +285,10 @@ def load_unique_subtitles(subtitles: list[SRTBlock | dict]):
 
 class TranslationState(BaseModel):
     execution_id: str | None = Field(
-        ..., description='Azure Execution ID, can be used to query state and progress'
+        None, description='Azure Execution ID, can be used to query state and progress', alias='executionId'
     )
-    audio_flow_execution_id: str | None = None
+    audio_flow_execution_id: str | None = Field(None, alias='audioFlowExecutionId')
     state: TranslationSteps = TranslationSteps.PENDING
-
-    model_config = ConfigDict(alias_generator=document_alias_generator, populate_by_name=True)
 
 
 class Translation(BaseCreateUpdateDocument):
@@ -339,7 +337,7 @@ class Translation(BaseCreateUpdateDocument):
     def project_id(self):
         if isinstance(self.project, Link):
             return self.project.ref.id
-        return self.project.id
+        return self.project.id  # noqa
 
     @property
     def rows_missing_translation(self):
@@ -348,16 +346,6 @@ class Translation(BaseCreateUpdateDocument):
     @property
     def rows_with_translation(self):
         return [row for row in self.subtitles if row.is_translated]
-
-    async def get_backup_path(self):
-        if isinstance(self.project, Link):
-            self.project: Project = await self.project.fetch()
-        return self.project.base_blob_path / 'checkpoints' / f'{self.target_language}.pkl'
-
-    async def get_original_subs_blob_path(self):
-        if isinstance(self.project, Link):
-            await self.fetch_link('project')
-        return self.project.base_blob_path / 'translations' / f'{self.project.source_language}.{self.mime_type}'
 
     @field_validator('subtitles', mode='before')
     @classmethod
