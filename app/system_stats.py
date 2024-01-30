@@ -76,9 +76,9 @@ async def _get_translations_stats() -> list[dict]:
             'id': translation.id,
             'name': projects[translation.project_id],
             'Amount Rows': len(translation.subtitles),
-            'State': STATES_MAP[translation.state.value],
+            'State': STATES_MAP[translation.flow_state.state.value],
             'Took': get_took(translation.took),
-            'Translated Rows in %': (100.0 if translation.state == TranslationStates.COMPLETED
+            'Translated Rows in %': (100.0 if translation.flow_state.state == TranslationStates.COMPLETED
                                      else pct(len(translation.rows_with_translation), len(translation.subtitles))),
             'Engine Version': translation.engine_version.value,
             'Delete': False,

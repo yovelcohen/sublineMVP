@@ -324,7 +324,6 @@ class Translation(BaseCreateUpdateDocument):
         return f'Translation for project {_id} to {self.target_language}.\n State: {self.flow_state.state.value}, Num Rows: {len(self.subtitles)}\nVersion: {self.engine_version.value.upper()}'
 
     async def update_state(self, state: TranslationStates):
-        self.state = state
         if self.flow_state is None:
             self.flow_state = TranslationState(state=state)
         else:
