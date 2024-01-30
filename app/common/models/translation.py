@@ -197,10 +197,11 @@ class SRTBlock(BaseModel):
         )
 
 
-class TranslationStates(str, Enum):
+class TranslationSteps(str, Enum):
     """
-PENDING -> IN_PROGRESS -> AUDIO_ANALYSIS ->
- VIDEO_ANALYSIS -> TRANSLATING -> COMPLETED
+    PENDING -> IN_PROGRESS -> AUDIO_ANALYSIS ->
+        VIDEO_ANALYSIS -> TRANSLATING -> COMPLETED
+    |||--> FAILED
     """
     PENDING = 'pe'
     IN_PROGRESS = 'ip'
@@ -209,7 +210,6 @@ PENDING -> IN_PROGRESS -> AUDIO_ANALYSIS ->
     TRANSLATING = 'tr'
     COMPLETED = 'co'
     FAILED = 'fa'
-    RECOVERING = 're'
 
 
 class Ages(int, Enum):
@@ -288,7 +288,7 @@ class TranslationState(BaseModel):
         ..., description='Azure Execution ID, can be used to query state and progress'
     )
     audio_flow_execution_id: str | None = None
-    state: TranslationStates = TranslationStates.PENDING
+    state: TranslationSteps = TranslationSteps.PENDING
 
     model_config = ConfigDict(alias_generator=document_alias_generator, populate_by_name=True)
 
@@ -325,7 +325,7 @@ class Translation(BaseCreateUpdateDocument):
         _id = self.project.ref.id if isinstance(self.project, Link) else self.project.id  # noqa
         return f'Translation for project {_id} to {self.target_language}.\n State: {self.flow_state.state.value}, Num Rows: {len(self.subtitles)}\nVersion: {self.engine_version.value.upper()}'
 
-    async def update_state(self, state: TranslationStates):
+    async def update_state(self, state: TranslationSteps):
         if self.flow_state is None:
             self.flow_state = TranslationState(state=state)
         else:
