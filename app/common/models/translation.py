@@ -10,9 +10,9 @@ from pymongo import IndexModel
 
 from srt import make_legal_content
 
-from common.models.base import BaseCreateUpdateDocument, document_alias_generator
-from common.models.core import Project
-from common.utils import timedelta_to_srt_timestamp
+from common.models.base import BaseCreateUpdateDocument, document_alias_generator  # noqa
+from common.models.core import Project  # noqa
+from common.utils import timedelta_to_srt_timestamp  # noqa
 
 
 def is_v_symbol(field_name):
@@ -166,7 +166,6 @@ class SRTBlock(BaseModel):
                             standard and may cause your media player to explode
         :param str eol: The end of line string to use (default "\\n_parts")
         :param translated: if provided, tries to get the translated version
-        :param revision: if True, will fall back to the revision content if selected is None
 
         :returns: The metadata of the current :py:class:`Subtitle` object as an
                   SRT formatted subtitle block
@@ -273,17 +272,36 @@ class ModelVersions(str, Enum):
 is_multi_modal = lambda v: v.value.startswith('v3') or '.3.' in v.value
 
 
+def load_unique_subtitles(subtitles: list[SRTBlock | dict]):
+    subtitles = list(subtitles)
+    if len(subtitles) > 0 and isinstance(subtitles[0], dict):
+        subtitles = sorted(list(set([SRTBlock(**di) for di in subtitles])), key=lambda r: r.index)
+    else:
+        subtitles = sorted(list(set(subtitles)), key=lambda r: r.index)
+    for row in subtitles:
+        row.content = row.content.strip()
+    return subtitles
+
+
+class TranslationState(BaseModel):
+    execution_id: str | None = Field(
+        ..., description='Azure Execution ID, can be used to query state and progress'
+    )
+    audio_flow_execution_id: str | None = None
+    state: TranslationStates = TranslationStates.PENDING
+
+
 class Translation(BaseCreateUpdateDocument):
-    engine_version: ModelVersions = Field(default=ModelVersions.V039, alias='modelVersion')
+    engine_version: ModelVersions = Field(default=ModelVersions.V034, alias='modelVersion')
     project: Link[Project]
     target_language: str | None
 
+    # TODO: This is very bad for mongo, we need to move this to blob or something asap
     subtitles: list[SRTBlock]  # map from index to SRTBlock
 
     mime_type: str | None = None
 
-    state: TranslationStates = TranslationStates.PENDING
-    took: float = 0
+    flow_state: TranslationState | None = Field(default_factory=TranslationState)
 
     class Settings:
         indexes = [
@@ -302,25 +320,19 @@ class Translation(BaseCreateUpdateDocument):
         return hash(str(self.id))
 
     def __repr__(self):
-        _id = self.project.ref.id if isinstance(self.project, Link) else self.project.id
-        return f'Translation for project {_id} to {self.target_language}.\n State: {self.state.value}, Num Rows: {len(self.subtitles)}\nVersion: {self.engine_version.value.upper()}'
+        _id = self.project.ref.id if isinstance(self.project, Link) else self.project.id  # noqa
+        return f'Translation for project {_id} to {self.target_language}.\n State: {self.flow_state.state.value}, Num Rows: {len(self.subtitles)}\nVersion: {self.engine_version.value.upper()}'
 
     async def update_state(self, state: TranslationStates):
         self.state = state
+        if self.flow_state is None:
+            self.flow_state = TranslationState(state=state)
+        else:
+            self.flow_state.state = state
         await self.save(ignore_revision=True)
 
-    # TODO: Move these methods to project, when migrating original rows to project level/blob storage as well
-    @property
-    def length(self) -> timedelta:
-        return self.end_time - self.start_time
-
-    @property
-    def start_time(self) -> timedelta:
-        return self.subtitles[0].start
-
-    @property
-    def end_time(self) -> timedelta:
-        return self.subtitles[-1].end
+    def get_row(self, index):
+        return [row for row in self.subtitles if row.index == index][0]
 
     @property
     def project_id(self):
@@ -343,20 +355,13 @@ class Translation(BaseCreateUpdateDocument):
 
     async def get_original_subs_blob_path(self):
         if isinstance(self.project, Link):
-            self.project: Project = await self.project.fetch()
+            await self.fetch_link('project')
         return self.project.base_blob_path / 'translations' / f'{self.project.source_language}.{self.mime_type}'
 
     @field_validator('subtitles', mode='before')
     @classmethod
     def unique_subtitles(cls, subtitles: list[SRTBlock | dict]):
-        subtitles = list(subtitles)
-        if len(subtitles) > 0 and isinstance(subtitles[0], dict):
-            subtitles = sorted(list(set([SRTBlock(**di) for di in subtitles])), key=lambda r: r.index)
-        else:
-            subtitles = sorted(list(set(subtitles)), key=lambda r: r.index)
-        for row in subtitles:
-            row.content = row.content.strip()
-        return subtitles
+        return load_unique_subtitles(subtitles)
 
 
 class SpeakerUtterance(BaseModel):

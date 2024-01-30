@@ -2,8 +2,7 @@ import asyncio
 import datetime
 import logging
 import re
-from math import isnan
-from typing import NotRequired, DefaultDict, Callable
+from typing import NotRequired, DefaultDict
 
 import pandas as pd
 import streamlit as st
@@ -97,6 +96,7 @@ def _show_sidebar(
                     f'{version.value} Errors - {len(fb.marked_rows)} ({pct(len(fb.marked_rows), amount)} %)',
                     divider='rainbow'
                 )
+                counts = dict(sorted(counts.items(), key=lambda x: x[1], reverse=True))
                 repr_obj = '  \n'.join([f'{err} - {count}' for err, count in counts.items()])
                 st.info(repr_obj)
 
