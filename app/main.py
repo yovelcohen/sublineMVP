@@ -139,12 +139,12 @@ class TranslationLight(BaseModel):
     def project_id(self):
         if isinstance(self.project, Link):
             return self.project.ref.id
-        return self.project.id
+        return self.project.id  # noqa
 
 
 async def _get_viewer_data():
     translations = await Translation.find(
-        In(Translation.modelVersion, [ModelVersions.V039.value, ModelVersions.V1.value, ModelVersions.V3.value])
+        In(Translation.engine_version, [ModelVersions.V039.value, ModelVersions.V1.value, ModelVersions.V3.value])
     ).project(TranslationLight).to_list()
     pids = {t.project_id for t in translations}
     fbs, projects = await asyncio.gather(
