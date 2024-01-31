@@ -144,7 +144,7 @@ class TranslationLight(BaseModel):
 
 async def _get_viewer_data():
     translations = await Translation.find(
-        In(Translation.engine_version, [ModelVersions.V039.value, ModelVersions.V1.value, ModelVersions.V3.value])
+        In(Translation.modelVersion, [ModelVersions.V039.value, ModelVersions.V1.value, ModelVersions.V3.value])
     ).project(TranslationLight).to_list()
     pids = {t.project_id for t in translations}
     fbs, projects = await asyncio.gather(
