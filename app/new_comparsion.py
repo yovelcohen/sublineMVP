@@ -5,10 +5,12 @@ import re
 from typing import NotRequired, DefaultDict
 
 import pandas as pd
+import pymongo
 import streamlit as st
 import typing_extensions
 from beanie import PydanticObjectId, Document
-from pydantic import Field
+from pydantic import Field, ConfigDict
+from pymongo import IndexModel
 
 from common.config import mongodb_settings
 from common.db import init_db
@@ -40,9 +42,23 @@ class TranslationFeedbackV2(Document):
     marked_rows: list[MarkedRow]
     duration: datetime.timedelta | None = None
 
-    @property
-    def error_pct(self):
-        return round(((len(self.marked_rows) / self.total_rows) / 100), 2)
+    created_at: datetime = Field(default_factory=datetime.datetime.now)
+    updated_at: datetime = Field(default_factory=datetime.datetime.now)
+
+    model_config = ConfigDict(arbitrary_types_allowed=True)
+
+    async def save(self, *args, **kwargs):
+        self.updated_at = datetime.datetime.now()
+        return await super().save(*args, **kwargs)
+
+    class Settings:
+        indexes = [
+            IndexModel(
+                name="unique_together",
+                keys=[("name", pymongo.DESCENDING), ("engine_version", pymongo.DESCENDING)],
+                unique=True
+            )
+        ]
 
 
 OriginalContent: str
