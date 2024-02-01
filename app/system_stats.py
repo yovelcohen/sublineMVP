@@ -58,7 +58,7 @@ STATES_MAP = {
     'fa': 'Failed'
 }
 
-ALLOWED_VERSIONS = [v.value for v in (ModelVersions.V039, ModelVersions.V3, ModelVersions.V1)]
+ALLOWED_VERSIONS = [v.value for v in (ModelVersions.V039, ModelVersions.V3, ModelVersions.V1, ModelVersions.V0310)]
 
 
 async def _get_translations_stats() -> list[dict]:

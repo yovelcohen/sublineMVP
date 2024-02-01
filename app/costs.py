@@ -51,7 +51,7 @@ async def _costs_panel():
     costs: list[CostRecord]
 
     names = {proj.id: proj.name for proj in await Project.find_all().to_list()}
-    vs = [v.value for v in (ModelVersions.V039,)]
+    vs = [v.value for v in (ModelVersions.V039, ModelVersions.V0310)]
     id_to_translation: dict[PydanticObjectId, Translation] = {
         tr.id: tr for tr in await Translation.find(In(Translation.engine_version, vs)).to_list()
     }

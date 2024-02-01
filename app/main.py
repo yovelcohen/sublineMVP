@@ -133,7 +133,7 @@ class NameProject(Project):
 class TranslationLight(BaseModel):
     id: PydanticObjectId = Field(..., alias='_id')
     project: Link[Project]
-    engine_version: ModelVersions = Field(default=ModelVersions.V039, alias='modelVersion')
+    engine_version: ModelVersions = Field(default=ModelVersions.LATEST, alias='modelVersion')
 
     @property
     def project_id(self):
@@ -144,7 +144,8 @@ class TranslationLight(BaseModel):
 
 async def _get_viewer_data():
     translations = await Translation.find(
-        In(Translation.engine_version, [ModelVersions.V039.value, ModelVersions.V1.value, ModelVersions.V3.value])
+        In(Translation.engine_version, [ModelVersions.V039.value, ModelVersions.V1.value, ModelVersions.V3.value,
+                                        ModelVersions.V0310.value])
     ).project(TranslationLight).to_list()
     pids = {t.project_id for t in translations}
     fbs, projects = await asyncio.gather(
