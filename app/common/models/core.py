@@ -9,6 +9,8 @@ from pymongo import IndexModel
 
 from common.models.base import BaseDocument, document_alias_generator
 
+from common.consts import AllowedSourceLanguages
+
 
 class ClientTypes(str, Enum):
     PRO = 'pro'
@@ -115,7 +117,7 @@ class Project(Document):
     model_config = {**BaseDocument.model_config, 'use_enum_values': True}
 
     name: str
-    source_language: str | None
+    source_language: AllowedSourceLanguages | None = None
 
     description: ProjectDescription | None = Field(default_factory=lambda: ProjectDescription())
 

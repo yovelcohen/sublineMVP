@@ -101,7 +101,7 @@ class SRTBlock(BaseModel):
     proprietary: str = ''
     translations: TranslationSuggestions | None = None
 
-    speaker: int | None = None
+    speaker: int | str | None = None
     speaker_gender: str | None = None
     style: str | None = None
     num_tokens: int | None = None
