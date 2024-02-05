@@ -147,28 +147,6 @@ def rows_to_srt(
 
 
 class RunObjectMixin:
-    """
-    A mixin to turn class into li coroutine, by implementing `__await__` and `__call__` methods.
-    >>> async def something_else():
-    >>>     await asyncio.sleep(5) # noqa
-    >>>
-    >>> class Something(RunObjectMixin):
-    >>>        def __init__(self, stuff):
-    >>>            self.stuff = stuff
-    >>>
-    >>>    async def _run(self, *args, **kwargs):
-    >>>        await something_else()
-    >>>        return sum(self.stuff)
-    >>>
-    >>> things = [1, 1, 1]
-    >>> results = await Something(things)
-    >>> # OR
-    >>> runner = Something(things)
-    >>> results = await runner() # noqa
-    >>>
-    >>> print(results)
-    >>> 3
-    """
 
     async def _run(self, *args, **kwargs):
         raise NotImplementedError
