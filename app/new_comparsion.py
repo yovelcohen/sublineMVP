@@ -158,6 +158,9 @@ async def construct_comparison_df(
         ]
         data[v.value] = version_translation
         column_config[v.value] = st.column_config.TextColumn(width='large', disabled=True)
+        if any([row.speaker_gender is not None for row in t.subtitles]):
+            data['Speaker Gender'] = [row.speaker_gender for row in t.subtitles]
+            column_config['Speaker Gender'] = st.column_config.TextColumn(width='small', disabled=True)
         error_cols.append(err_key)
 
         if v in existing_feedbacks:
