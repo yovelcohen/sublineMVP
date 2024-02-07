@@ -7,6 +7,7 @@ import pandas as pd
 import streamlit as st
 from beanie import PydanticObjectId
 
+from streamlit_utils import SelectBoxColumn
 from common.config import mongodb_settings
 from common.db import init_db
 from common.models.users import User
