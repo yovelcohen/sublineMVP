@@ -51,7 +51,7 @@
 
         - type: "Model Answer"
           writer: "Model"
-          text: "First iteration of suggestions
+          text: "First iteration of suggestions"
 
 - version: "V0.3.10-StepByStep"
   features: [ "Description From Audio", "one 3-suggestions set that is revised in a chat form according to different rules" ]
