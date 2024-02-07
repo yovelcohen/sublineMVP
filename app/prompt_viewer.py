@@ -21,9 +21,14 @@ def view_prompts():
             for i, step in enumerate(flow['flow'], start=1):
                 name = step['step']
                 st.subheader(f'Step {i}: {name}', divider='orange')
-                for prompt in step['prompts']:
+                for p_i, prompt in enumerate(step['prompts']):
                     msg_type = prompt['writer']
                     prompt_type = prompt['type']
                     st.subheader(f'Writer: {msg_type} - Type: {prompt_type}', divider='green')
-                    text = prompt['text']
-                    st.text_area(label='promptText', value=text, disabled=True, label_visibility='hidden')
+                    st.text_area(
+                        label='promptText',
+                        value=prompt['text'],
+                        disabled=True,
+                        label_visibility='hidden',
+                        key=f'{version}{i}{p_i}'
+                    )
