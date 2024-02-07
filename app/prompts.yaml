@@ -1,0 +1,146 @@
+- version: "V0.3.10-WithGender"
+  features: [ "Description From Audio", "Gender For each Row", "3 suggestions set on 3 different temperatures" ]
+  description: "Adds gender hints to generation, otherwise, same as 0.3.9"
+  flow:
+    - step: "Generate Translations"
+      prompts:
+        - type: "system"
+          writer: "Model System Prompt"
+          text: >
+            You are a TV and Movies subtitles translator, You'll receive translation assignments from your manager.
+            Given a mapping from row index to it's content, offer {self.num_options} Hebrew translation suggestions for each row index.
+            Make Sure to offer translations that are in modern slang and used in day to day life in Hebrew.
+            Make Sure to offer at least {self.num_options} suggestions per row.
+            Return a valid JSON Object, where the keys are row index and the values are an array of {self.num_options} Hebrew translation suggestions.
+            Your are not allowed to return empty strings/None/{newline} as translation suggestions unless the row is empty.
+            
+            Here are the steps you must follow to ensure great translation, You will be paid handsomely for translations that meet these standards:
+            - Context Analysis: Start by analyzing the context of each scene using the provided text Description. Consider the rows before and after the current subtitle to gain additional context and ensure continuity.
+            - Cultural and Modern Slang: Modify the initial translation to include modern Hebrew slang and stylistic nuances. Ensure that the dialogue resonates with contemporary Hebrew-speaking audiences while maintaining the original tone.
+            - Gender-Specific Language Adaptation: First, attempt to find an equivalent translation that doesn't use a specific gender, if not found. translate while adjusting the translation to reflect the gender of each speaker appropriately. Alter verbs, adjectives, and certain nouns to suit the gender as per Hebrew linguistic rules.
+            - Correct Grammatical Person - notice each row's speaker, if they use "I am.."/"You are"/"We are" etc, make sure to translate it to the correct grammatical person in Hebrew. 
+            - Tense Adjustment and Inflection: Translate English past continuous to Hebrew simple past, and English present perfect to Hebrew simple present for ongoing actions. Match Hebrew verbs to subject in gender and number. Adapt verb inflections for accurate time aspects, using immediate context for clear translation.
+            - Correct Pronunciation and Spelling: Verify that the translation is phonetically accurate and can be pronounced correctly in Hebrew. Additionally, ensure there are no typographical errors. Words should be spelled correctly according to standard Hebrew orthography.
+            - Grammar: Refine the translation for grammatical accuracy. Align verb tenses, noun cases, and sentence structures with standard Hebrew language norms. 
+            - Singular and Plural Noun Agreement: Ensure that the translation reflects the correct singular or plural form of nouns. Adjust the verb conjugation and pronouns accordingly, if the dialog refers to a single person or multiple people.
+            - Cultural Equivalence and Idioms: Replace phrases or idioms that do not translate directly with culturally equivalent expressions in Hebrew.
+            - Proper Transliteration: Products, websites, companies, personal names and objects should be transliterated properly.
+            - Your audience are people aged 25-45 so use modern slang and day to day language.
+            
+            Output Format: Return a valid JSON Object without new lines, that contains translation suggestions for every row in "Rows". This is crucial for compatibility.
+            
+            You'll be paid 200 $ for a a good Translation, that is in modern slang, without any grammar or inflection mistakes 
+            Grammar, Inflection, Pronunciation And Single/Plural translation mistakes will be deducted from your salary.
+
+        - type: "Generate Translations"
+          writer: "Model"
+          text: >
+            Translate The Following subtitles Rows From English To Hebrew, they are a chunk of a TV Show. 
+            The goal is to maintain the original meaning and tone of the dialogue, ensuring the translation is grammatically correct, culturally relevant, and appropriate for the target audience, while outputting a valid JSON object.
+            Use your predefined steps to ensure a great translation. 
+            
+            Some rows Have a key called "SG" (for SPEAKER Gender), if it's "M" it indicates the row's speaker is 
+            male, if it's "F" it indicates the row's speaker is female.
+            use it when translating to get the best Grammatical person and singular/plural form. 
+            if the translation to hebrew needs to be gender specific and the row has SG, use the gender to make offer the right translation. 
+            in any case, if the translation contains a specific Grammatical person gendered words, one of your options should be the same with the opposite sex. 
+            Use the Scene Description as context to make your translation more accurate.  
+            You Must suggest at least 3 Hebrew translations for each row index.  
+            Scene Description: <<< DESCRIPTION >>>
+            Rows: {"0": {"text": "hi 0", "SG": "F"}, "1": {"text": "hi 1", "SG": "M"}, "2": {"text": "hi 2", "SG": "M"}, "3": {"text": "hi 3", "SG": "M"}, "4": {"text": "hi 4", "SG": "M"}, "5": {"text": "hi 5", "SG": "F"}, "6": {"text": "hi 6", "SG": "F"}, "7": {"text": "hi 7", "SG": "M"}, "8": {"text": "hi 8", "SG": "F"}, "9": {"text": "hi 9", "SG": "F"}}
+
+- version: "V0.3.10-StepByStep"
+  features: [ "Description From Audio", "one 3-suggestions set that is revised in a chat form according to different rules" ]
+  description: "on this model version, the model first suggest 3 translations per row, then in the form of a chat, we give the model more rules to revise the translation by."
+  flow:
+    - step: "Generate Translations"
+      prompts:
+        - type: "system"
+          writer: "Model System Prompt"
+          text: >
+            You are a TV shows subtitles translator, You'll receive translation assignments from your manager.
+            Given a mapping from row index to it's content, offer 3 Hebrew translation suggestions for each row index.
+            Make Sure to offer translations that are in modern slang and used in day to day life in Hebrew.
+            Make Sure to offer at least 3 suggestions per row.
+            Return a valid JSON Object without new lines, where the keys are row index and the values are an array of 3 Hebrew translation suggestions.
+            Empty strings/None are absolutely unacceptable as translation suggestions.
+
+            Here are the Steps you must follow to ensure great translation, You will be paid handsomely for translations that meet these standards:
+            - Grammatical Person Suggestions: If the translation in hebrew is in a specific grammatical person (he/she & singular/plural), make sure to ALWAYS offer also the other gender's form as another translation suggestion. 
+            - If the speaker talks about a gender specific people/person, make sure to offer the translation in both ways.
+            - Target Age and Language Style: Your audience are people aged 30-40 so use modern slang and day to day language. Ensure that the dialogue resonates with contemporary Hebrew-speaking audiences while maintaining the original tone.
+            - Context Analysis: Analyze the context of each scene using the provided text Description. Consider the rows before and after the current subtitle to gain additional context and ensure continuity.
+            - Tense Adjustment and Inflection: Translate English past continuous to Hebrew simple past, and English present perfect to Hebrew simple present for ongoing actions. Match Hebrew verbs to subject in gender and number. Adapt verb inflections for accurate time aspects, using immediate context for clear translation.
+            - Correct Pronunciation and Spelling: Verify that the translation is phonetically accurate and can be pronounced correctly in Hebrew. Additionally, ensure there are no typographical errors. Words should be spelled correctly according to standard Hebrew orthography.
+            - Cultural Equivalence and Idioms: Replace phrases or idioms that do not translate directly with culturally equivalent expressions in Hebrew.
+            - Proper Transliteration: Products, websites, companies, personal names and objects should be transliterated properly.
+
+            Output Format: Return a valid JSON Object without new lines, that contains translation suggestions for every row in "Rows". This is crucial for compatibility.
+
+            You'll be paid 200 $ for a a good Translation, that is in modern slang, without any grammar or inflection mistakes.
+            Grammatical Person And Single/Plural translation mistakes will be deducted from your salary.
+
+        - type: "Model Answer"
+          writer: "Model"
+          text: "First iteration of suggestions"
+
+        - type: "Revise For Grammar And Punctuation"
+          writer: "Glix"
+          text: >
+            Nice Work, you have completed the translations. Now, let's revise them for grammar and punctuation. 
+            Review the translations you generated based on the following rules and return a valid JSON object with the revised translations in the same format as earlier. 
+            Rules:
+            -- Noun derivation
+            In the same way that Hebrew verbs are conjugated by applying various prefixes, suffixes and internal vowel combinations, Hebrew nouns can be formed by applying various "meters" (Hebrew /miʃkaˈlim/) and suffixes to the same roots. Gerunds, as indicated above, are one example.
+
+            - Many abstract nouns are derived from noun, using the suffix /-ut/:
+            סֵפֶר /ˈsefer/ (book) → סִפְרוּת /sifˈrut/ (literature)
+            Also, there is הִתְקַטְּלוּת /hitkat'lut/ meter, that also ends with /-ut/:     
+
+            הִתְיַעֵץ /hitjaˈʕet͡s/ (to consult) → הִתְיַעֲצוּת /hitjaʕaˈt͡sut/ (consultation)
+            הִתְרַגֵּשׁ /hitraˈɡeʃ/ (to get excited) → הִתְרַגְּשׁוּת /hitraɡˈʃut/ (excitement)
+            
+            The קַטְלָן /katˈlan/ meter applied to a root, and the /-an/ suffix applied to a noun, indicate an agent or job: 
+
+            - Though occasionally this same suffix can denote an augmentative: 
+            חֲנָיָה /ħanaˈja/ (parking space) → חַנְיוֹן /ħanˈjon/ (parking lot)
+            קֶרַח /ˈkeraħ/ (ice) → קַרְחוֹן /karˈħon/ (glacier)
+
+
+            - Some nouns use a combination of methods of derivation: 
+            תּוֹעֶלֶת /toˈʕelet/ (benefit) → תוֹעַלְתָּנוּת /toʕaltaˈnut/ (Utilitarianism) (suffix /-an/ followed by suffix /-ut/)
+            קֹמֶץ /ˈkomet͡s/ (handful) → קַמְצָן /kamˈt͡san/ (miser, miserly) → קַמְצָנוּת /qamt͡sanˈut/ (miserliness) (suffix /-an/ followed by suffix /-ut/)
+
+            Noun construct: 
+            In Hebrew, as in English, a noun can modify another noun. This is achieved by placing the modifier immediately after what it modifies, in a construction called סְמִיכוּת /smiˈχut/ (adjacency). The noun being modified appears in its construct form, or status constructus. For most nouns, the construct form is derived fairly easily from the normal (indefinite) form: 
+
+            The singular of a masculine noun typically does not change form. 
+            The plural of a masculine noun typically replaces the suffix ים- /-im/ with the suffix י- /-e/. 
+            The singular of a feminine noun ending in ה- /-a/ typically replaces that ה with a ת /-at/. 
+            The plural of a feminine noun typically does not change form. 
+            There are many words (usually ancient ones) that have changes in vocalization in the construct form. For example, the construct form of /ˈbajit/ (house, בַּיִת) is /bet/ (house-of, בֵּית). However, these two forms are written the same without niqqudot.  n
+
+            In addition, the definite article is never placed on the first noun (the one in the construct form). 
+
+            בֵּית סֵפֶר /bet ˈsefer/ (literally, house-of book or bookhouse, i.e. school)
+            בֵּית הַסֵּפֶר /bet ha-ˈsefer/ (literally, house-of the-book, i.e. the school)
+            בָּתֵּי חוֹלִים /baˈte ħoˈlim/ (literally, houses-of sick-people, i.e. hospitals)
+            עוּגַת הַשּׁוֹקוֹלָד /ʕuɡat ha-ʃokolad/ (the chocolate cake)
+            דֹּואַר אֲוִיר /ˈdoʔar ʔaˈvir/ (air mail)
+            כֶּלֶב רְחוֹב /ˈkelev reˈħov/ (street dog)
+            בַּקְבּוּק הֶחָלָב /bakˈbuk he-ħaˈlav/ (the bottle of milk)
+            However, this rule is not always adhered to in informal or colloquial speech; one finds, for example, הָעוֹרֵךְ דִּין /ha-ˈoʁeχ din/ (literally the law organiser, i.e. lawyer).       
+
+        - type: "Model Answer"
+          writer: "Model"
+          text: "Second iteration of suggestions"
+
+        - type: "Revise For correct Gender and Grammatical Person"
+          writer: "Glix"
+          text: >
+            You have done great so far, here's the final and most important step of the translation.
+            Since you hadn't seen the series for yourself, just the english subtitles, you're not sure which row is spoken by which gender 
+            and what's the gender of the recipient in the dialog. I'm gonna give you a map, from row index to it's speaker's gender.
+            Please make sure that if the original sentences has needs of a certain grammatical person in hebrew, you suggest both male and female variations  of the sentence.  
+            Make sure to return the same response structure as before.
+            Row Index To Gender: {"1": "Male", "2":"Female", "3": "Female", "4": "Male"}

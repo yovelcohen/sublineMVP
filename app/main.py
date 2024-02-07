@@ -13,6 +13,7 @@ from beanie.odm.operators.find.comparison import In
 from pydantic import BaseModel, model_validator, Field
 from streamlit.runtime.uploaded_file_manager import UploadedFile
 
+from app.prompt_viewer import view_prompts
 from services.parsers.convertors import xml_to_srt
 from services.parsers.format_handlers import srt_to_rows
 from common.models.core import Project, Client, ClientChannel
@@ -249,7 +250,8 @@ if st.session_state["authentication_status"] is True:
         'Engine Stats': view_stats,
         'Engine Stats 2': stats,
         'Manage Existing Translations': manage_existing,
-        'Costs Breakdown': costs_panel
+        'Costs Breakdown': costs_panel,
+        'Prompt Viewer': view_prompts
     }
     app_name = st.sidebar.selectbox("Choose app", page_names_to_funcs.keys())
     page_names_to_funcs[app_name]()
