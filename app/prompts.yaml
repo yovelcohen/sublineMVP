@@ -49,6 +49,10 @@
             Scene Description: <<< DESCRIPTION >>>
             Rows: {"0": {"text": "hi 0", "SG": "F"}, "1": {"text": "hi 1", "SG": "M"}, "2": {"text": "hi 2", "SG": "M"}, "3": {"text": "hi 3", "SG": "M"}, "4": {"text": "hi 4", "SG": "M"}, "5": {"text": "hi 5", "SG": "F"}, "6": {"text": "hi 6", "SG": "F"}, "7": {"text": "hi 7", "SG": "M"}, "8": {"text": "hi 8", "SG": "F"}, "9": {"text": "hi 9", "SG": "F"}}
 
+        - type: "Model Answer"
+          writer: "Model"
+          text: "First iteration of suggestions
+
 - version: "V0.3.10-StepByStep"
   features: [ "Description From Audio", "one 3-suggestions set that is revised in a chat form according to different rules" ]
   description: "on this model version, the model first suggest 3 translations per row, then in the form of a chat, we give the model more rules to revise the translation by."
@@ -144,3 +148,7 @@
             Please make sure that if the original sentences has needs of a certain grammatical person in hebrew, you suggest both male and female variations  of the sentence.  
             Make sure to return the same response structure as before.
             Row Index To Gender: {"1": "Male", "2":"Female", "3": "Female", "4": "Male"}
+
+        - type: "Model Answer"
+          writer: "Model"
+          text: "Final Revised Answer"
