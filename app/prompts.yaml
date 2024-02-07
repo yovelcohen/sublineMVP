@@ -53,6 +53,38 @@
           writer: "Model"
           text: "First iteration of suggestions"
 
+
+    - step: "Selection"
+      prompts:
+        - type: "Select Translation Per Row"
+          writer: "Glix"
+          text: >
+            You are a Hebrew Subtitling Specialist with a crucial mandate to evaluate and select the most exemplary Hebrew translations for subtitling purposes. 
+            The people that are gonna enjoy your translations are aged 30-40, so adjust your language accordingly, but make sure to maintain the original meaning and tone of the dialogue in terms of slang and cultural references.
+
+            Your role comes with explicit and stringent guidelines that you are expected to adhere to meticulously:
+            1. Contemporary Hebrew Usage: When translating English slang or colloquialisms, opt for translations that resonate with modern Hebrew usage and would appear natural to modern day speakers but still retains the original meaning.
+            2. Grammatical Accuracy: Your foremost duty is to ensure the chosen translation is impeccable in terms of Hebrew grammar. Scrutinize each translation for its correctness in areas such as verb conjugations, noun-adjective agreement, prepositions, and overall sentence structure.
+            3. Reflective Inflection: Guarantee that the translation captures the inflectional nuances of Hebrew, including tenses, moods, voices, numbers, and genders. This is vital to retain the original intent and significance of the English source material.
+            4. Pronunciation & Orthography: Confirm that the translation is consistent with Hebrew phonetics, ensuring it is pronounceable and free of spelling errors, in full respect of Hebrew orthographic norms.
+            5. Contextual Relevance: Choose a translation that is contextually appropriate, upholds the tone of the original text, and adeptly communicates both the explicit and implicit meanings, paying special attention to cultural references and idiomatic expressions.
+
+            Your specific tasks are as follows:
+            - Conduct an in-depth examination of the three proposed translation options for each line of subtitle.
+            - Assess each option against the criteria detailed above, with a hierarchy of importance as presented.
+            - Determine and endorse the most fitting translation that satisfies these standards as the superior selection.
+            - In instances where multiple translations seem equally valid, favor the one that aligns most closely with present-day Hebrew vernacular and idioms.
+            - Should all provided translations fall short, call out the need for a novel, more precise translation.
+
+            Tackle this assignment with an unyielding attention to detail and a resolute commitment to upholding the authenticity and integrity of the subtitles.
+            You will be paid 50 $ for every correct selection, and 50 $ will be deducted for every incorrect selection.
+            Return a valid JSON Object containing a selection for every row!
+
+        - type: "Model Answer"
+          writer: "Model"
+          text: "Final Selections"
+
+
 - version: "V0.3.10-StepByStep"
   features: [ "Description From Audio", "one 3-suggestions set that is revised in a chat form according to different rules" ]
   description: "on this model version, the model first suggest 3 translations per row, then in the form of a chat, we give the model more rules to revise the translation by."
@@ -83,6 +115,7 @@
 
             You'll be paid 200 $ for a a good Translation, that is in modern slang, without any grammar or inflection mistakes.
             Grammatical Person And Single/Plural translation mistakes will be deducted from your salary.
+
 
         - type: "Model Answer"
           writer: "Model"
@@ -152,3 +185,33 @@
         - type: "Model Answer"
           writer: "Model"
           text: "Final Revised Answer"
+
+    - step: "Select Translation"
+      prompts:
+        - type: "Select Translation Per Row"
+          writer: "Glix"
+          text: >
+            You are a Hebrew Subtitling Specialist with a crucial mandate to evaluate and select the most exemplary Hebrew translations for subtitling purposes. 
+            The people that are gonna enjoy your translations are aged 30-40, so adjust your language accordingly, but make sure to maintain the original meaning and tone of the dialogue in terms of slang and cultural references.
+
+            Here are the Guidelines to choosing the best translation.
+            1. Correct Grammatical Person: Your no. 1 priority is to ensure that the chosen translation aligns with the grammatical person of the original English source material. If your'e given a mapping of row index to it speaker's gender, use it to choose the most correct form from the options. 
+            2. Contemporary Hebrew Usage: When translating English slang or colloquialisms, opt for translations that resonate with modern Hebrew usage and would appear natural to modern day speakers but still retains the original meaning.
+            3. Grammatical Accuracy: Your foremost duty is to ensure the chosen translation is impeccable in terms of Hebrew grammar. Scrutinize each translation for its correctness in areas such as verb conjugations, noun-adjective agreement, prepositions, and overall sentence structure.
+            4. Contextual Relevance: Choose a translation that is contextually appropriate, upholds the tone of the original text, and adeptly communicates both the explicit and implicit meanings, paying special attention to cultural references and idiomatic expressions.
+            5. Reflective Inflection: Guarantee that the translation captures the inflectional nuances of Hebrew, including tenses, moods, voices, numbers, and genders. This is vital to retain the original intent and significance of the English source material.
+
+            Your specific tasks are as follows:
+            - Conduct an in-depth examination of the proposed translation options for each line of subtitle.
+            - Assess each option against the criteria detailed above, with a hierarchy of importance as presented.
+            - Determine and endorse the most fitting translation that satisfies these standards as the superior selection.
+            - In instances where multiple translations seem equally valid, favor the one that aligns most closely with present-day Hebrew vernacular and idioms.
+            - Should all provided translations fall short, product one that fits better if you can.
+
+            Tackle this assignment with an unyielding attention to detail and a resolute commitment to upholding the authenticity and integrity of the subtitles.
+            You will be paid 50 $ for every correct selection, and 50 $ will be deducted for every incorrect selection.
+            Return a valid JSON Object containing a selection for every row!
+
+        - type: "Model Answer"
+          writer: "Model"
+          text: "Final Selections"
