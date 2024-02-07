@@ -13,7 +13,6 @@ from beanie.odm.operators.find.comparison import In
 from pydantic import BaseModel, model_validator, Field
 from streamlit.runtime.uploaded_file_manager import UploadedFile
 
-from app.prompt_viewer import view_prompts
 from services.parsers.convertors import xml_to_srt
 from services.parsers.format_handlers import srt_to_rows
 from common.models.core import Project, Client, ClientChannel
@@ -26,6 +25,7 @@ from common.models.users import User
 from auth import get_authenticator
 from costs import costs_panel
 from new_comparsion import newest_ever_compare, TranslationFeedbackV2
+from prompt_viewer import view_prompts
 from new_stats import stats
 from system_stats import get_stats, view_stats, get_data_for_stats, THREE_MINUTES
 
