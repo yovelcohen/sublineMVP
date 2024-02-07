@@ -28,6 +28,7 @@ from new_comparsion import newest_ever_compare, TranslationFeedbackV2
 from prompt_viewer import view_prompts
 from new_stats import stats
 from system_stats import get_stats, view_stats, get_data_for_stats, THREE_MINUTES
+from tag_gender import gender_tagger
 
 streamlit.logger.get_logger = logging.getLogger
 streamlit.logger.setup_formatter = None
@@ -143,7 +144,7 @@ class TranslationLight(BaseModel):
         return self.project.id  # noqa
 
 
-async def _get_viewer_data():
+async def _get_viewer_data() -> dict[str, list]:
     translations = await Translation.find(
         In(Translation.engine_version, [ModelVersions.V039.value, ModelVersions.V1.value,
                                         ModelVersions.V3.value, ModelVersions.V0310.value, ModelVersions.V0310_G.value])
@@ -218,6 +219,32 @@ def subtitles_viewer_from_db():
         newest_ever_compare(project_id, st.session_state.get('file', None))
 
 
+def gender_tagger_view():
+    ret = get_viewer_data()
+    existing_feedbacks, projects, translations = ret['fbs'], ret['projects'], ret['translations']
+    names = [d.name for d in existing_feedbacks]
+    proj_id_to_name = {proj.id: proj.name for proj in projects}
+    proj_name_to_id = {proj.name: proj.id for proj in projects}
+    proj_id_to_ts = defaultdict(list)
+    for ts in translations:
+        proj_id_to_ts[ts.project_id].append(ts)
+
+    def format_name(n):
+        _id = proj_name_to_id[n]
+        available_versions_repr = f'({", ".join([t.engine_version.value for t in proj_id_to_ts[_id]])})'
+        return f'{n} {available_versions_repr}'
+
+    with st.form('forma'):
+        chosenObj = st.selectbox('Choose Translation', options=list(proj_id_to_name.values()), format_func=format_name)
+        submit = st.form_submit_button('Get')
+        if submit:
+            _id = [k for k, v in proj_id_to_name.items() if v == chosenObj][0]
+            st.session_state['projectId'] = _id
+
+    if 'projectId' in st.session_state:
+        gender_tagger(st.session_state['projectId'])
+
+
 def manage_existing():
     data, fbs = get_data_for_stats()
     data = asyncio.run(get_stats(data, fbs))
@@ -251,7 +278,8 @@ if st.session_state["authentication_status"] is True:
         'Engine Stats 2': stats,
         'Manage Existing Translations': manage_existing,
         'Costs Breakdown': costs_panel,
-        'Prompt Viewer': view_prompts
+        'Prompt Viewer': view_prompts,
+        "Gender Tagger": gender_tagger_view
     }
     app_name = st.sidebar.selectbox("Choose app", page_names_to_funcs.keys())
     page_names_to_funcs[app_name]()

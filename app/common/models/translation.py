@@ -1,9 +1,10 @@
 import logging
-from datetime import timedelta
+from datetime import timedelta, datetime
 from enum import Enum
-from typing import Final, Self, NoReturn, Iterable
+from typing import Final, Self, NoReturn, Iterable, NotRequired
 
 import pymongo
+import typing_extensions
 from beanie import Document, Link
 from pydantic import Field, BaseModel, model_validator, ConfigDict, field_validator
 from pymongo import IndexModel
@@ -576,3 +577,36 @@ class CostCatcher:
             obj = CostRecord(translation=self.translation_obj, costs=self.costs)
             await obj.save()
         self.obj = obj
+
+
+class MarkedRow(typing_extensions.TypedDict):
+    error: str
+    original: str
+    translation: str | None
+    fixed: NotRequired[bool]
+
+
+class TranslationFeedbackV2(Document):
+    name: str
+    version: ModelVersions = Field(default=ModelVersions.LATEST, alias='engine_version')
+    total_rows: int
+    marked_rows: list[MarkedRow]
+    duration: timedelta | None = None
+
+    created_at: datetime = Field(default_factory=datetime.now)
+    updated_at: datetime = Field(default_factory=datetime.now)
+
+    model_config = ConfigDict(arbitrary_types_allowed=True)
+
+    async def save(self, *args, **kwargs):
+        self.updated_at = datetime.now()
+        return await super().save(*args, **kwargs)
+
+    class Settings:
+        indexes = [
+            IndexModel(
+                name="unique_together",
+                keys=[("name", pymongo.DESCENDING), ("engine_version", pymongo.DESCENDING)],
+                unique=True
+            )
+        ]

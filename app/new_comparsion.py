@@ -1,73 +1,22 @@
 import asyncio
-import datetime
 import logging
 import re
-from typing import NotRequired, DefaultDict
+from typing import DefaultDict
 
 import pandas as pd
-import pymongo
 import streamlit as st
-import typing_extensions
-from beanie import PydanticObjectId, Document
-from pydantic import Field, ConfigDict
-from pymongo import IndexModel
+from beanie import PydanticObjectId
 
 from common.config import mongodb_settings
 from common.db import init_db
 from common.models.users import User
 from common.models.core import Project, ClientChannel, Client
-from common.models.translation import Translation, ModelVersions, is_multi_modal, SRTBlock
-from common.utils import rows_to_srt
+from common.models.translation import (
+    Translation, ModelVersions, is_multi_modal, SRTBlock, TranslationFeedbackV2, MarkedRow
+)
+from common.utils import rows_to_srt, pct
 
 TWO_HOURS = 60 * 60 * 2
-
-
-def SelectBoxColumn(label, labels):
-    return st.column_config.SelectboxColumn(
-        width='medium', label=label, required=False, options=labels
-    )
-
-
-class MarkedRow(typing_extensions.TypedDict):
-    error: str
-    original: str
-    translation: str | None
-    fixed: NotRequired[bool]
-
-
-class TranslationFeedbackV2(Document):
-    name: str
-    version: ModelVersions = Field(default=ModelVersions.LATEST, alias='engine_version')
-    total_rows: int
-    marked_rows: list[MarkedRow]
-    duration: datetime.timedelta | None = None
-
-    created_at: datetime = Field(default_factory=datetime.datetime.now)
-    updated_at: datetime = Field(default_factory=datetime.datetime.now)
-
-    model_config = ConfigDict(arbitrary_types_allowed=True)
-
-    async def save(self, *args, **kwargs):
-        self.updated_at = datetime.datetime.now()
-        return await super().save(*args, **kwargs)
-
-    class Settings:
-        indexes = [
-            IndexModel(
-                name="unique_together",
-                keys=[("name", pymongo.DESCENDING), ("engine_version", pymongo.DESCENDING)],
-                unique=True
-            )
-        ]
-
-
-OriginalContent: str
-
-
-def pct(a, b):
-    if a == 0 or b == 0:
-        return 0
-    return round((a / b) * 100, 2)
 
 
 def _show_sidebar(
@@ -147,11 +96,12 @@ async def construct_comparison_df(
 
     column_config = {'English': st.column_config.TextColumn(width='large', disabled=True)}
 
-    existing_errors_map: dict[OriginalContent, MarkedRow] = dict()  # noqa
+    existing_errors_map: dict[str, MarkedRow] = dict()  # noqa
     labels = ['Gender Mistake', 'Time Tenses', 'Slang', 'Prepositions', 'Typo',
               'Name "as is"', 'Not fit in context', 'Plain Wrong Translation']
     for v, t in version_to_translation.items():
         err_key = f'{v.value} Error'
+        from streamlit_utils import SelectBoxColumn
         column_config[err_key] = SelectBoxColumn(err_key, labels)
         version_translation = [
             row.translations.selection if row.translations is not None else None for row in t.subtitles
@@ -215,7 +165,7 @@ async def _update_results(
             if v in existing_errors_map and len(existing_errors_map[v]) > 0:
                 await TranslationFeedbackV2(
                     name=project_name,
-                    version=v,
+                    version=v,  # noqa
                     total_rows=len(edited_df),
                     marked_rows=list(existing_errors_map[v].values())
                 ).create()

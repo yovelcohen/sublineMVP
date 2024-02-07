@@ -110,3 +110,9 @@ class stqdm(tqdm):
     def close(self):
         super().close()
         self.st_clear()
+
+
+def SelectBoxColumn(label, labels):
+    return st.column_config.SelectboxColumn(
+        width='medium', label=label, required=False, options=labels
+    )
