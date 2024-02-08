@@ -583,7 +583,6 @@ class MarkedRow(typing_extensions.TypedDict):
     error: str
     original: str
     translation: str | None
-    fixed: NotRequired[bool]
 
 
 class TranslationFeedbackV2(Document):

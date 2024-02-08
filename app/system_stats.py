@@ -98,7 +98,7 @@ async def _get_translations_stats() -> list[dict]:
                 ]
             )
         }
-        for translation in translations
+        for translation in translations if translation.project_id in projects
     ]
 
 

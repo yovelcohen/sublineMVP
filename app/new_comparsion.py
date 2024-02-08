@@ -86,21 +86,21 @@ async def construct_comparison_df(
         existing_feedbacks: dict[ModelVersions, TranslationFeedbackV2],
         extra_rows: list[SRTBlock] | None = None
 ):
-    first = list(version_to_translation.values())[0]
-    error_cols = list()
+    last = list(version_to_translation.values())[-1]
+    error_cols, ENLGLISH_KEY = list(), f'English (from: {last.engine_version.value.lower()})'
     data = {
-        'Time Stamp': [f'{row.start} --> {row.end}' for row in first.subtitles],
-        'English': [row.content for row in first.subtitles]
+        'Time Stamp': [f'{row.start} --> {row.end}' for row in last.subtitles],
+        ENLGLISH_KEY: [row.content for row in last.subtitles]
     }
     if extra_rows:
         data['Uploaded Subtitles'] = [strip_tags(row.content) for row in extra_rows]
 
-    column_config = {'English': st.column_config.TextColumn(width='large', disabled=True)}
+    column_config = {ENLGLISH_KEY: st.column_config.TextColumn(width='large', disabled=True)}
 
     existing_errors_map: dict[str, MarkedRow] = dict()  # noqa
     labels = ['Gender Mistake', 'Time Tenses', 'Slang', 'Prepositions', 'Typo',
               'Name "as is"', 'Not fit in context', 'Plain Wrong Translation']
-    for v, t in version_to_translation.items():
+    for v, t in reversed(version_to_translation.items()):
         err_key = f'{v.value} Error'
         from streamlit_utils import SelectBoxColumn
         column_config[err_key] = SelectBoxColumn(err_key, labels)
@@ -118,7 +118,7 @@ async def construct_comparison_df(
             feedback = existing_feedbacks[v]
             existing_errors_map[v] = {row['original']: row for row in feedback.marked_rows}
             data[err_key] = [
-                existing_errors_map[v].get(content, {}).get('error', None) for content in data['English']  # noqa
+                existing_errors_map[v].get(content, {}).get('error', None) for content in data[ENLGLISH_KEY]  # noqa
             ]
         else:
             data[err_key] = [None] * len(data[v.value])
@@ -129,7 +129,7 @@ async def construct_comparison_df(
             data[k] = v + ([None] * (maxlen - len(v)))
 
     df = pd.DataFrame(data)
-    return df, error_cols, column_config, existing_errors_map
+    return df, error_cols, column_config, existing_errors_map, ENLGLISH_KEY
 
 
 async def _update_results(
@@ -138,7 +138,8 @@ async def _update_results(
         error_cols: list[str],
         existing_errors_map: dict | DefaultDict,
         existing_feedbacks: dict[ModelVersions, TranslationFeedbackV2],
-        version_to_translation: dict[ModelVersions, Translation]
+        version_to_translation: dict[ModelVersions, Translation],
+        ENLGLISH_KEY: str
 ):
     updates_made = dict()
     for row in edited_df.to_dict(orient='records'):
@@ -148,11 +149,11 @@ async def _update_results(
             if err not in (None, 'None'):
                 if v not in existing_errors_map:
                     existing_errors_map[v] = dict()
-                if existing_errors_map[v].get(row['English']) is not None:
-                    existing_errors_map[v][row['English']]['error'] = err
+                if existing_errors_map[v].get(row[ENLGLISH_KEY]) is not None:
+                    existing_errors_map[v][row[ENLGLISH_KEY]]['error'] = err
                 else:
-                    existing_errors_map[v][row['English']] = MarkedRow(
-                        error=err, original=row['English'], translation=row[v.value]
+                    existing_errors_map[v][row[ENLGLISH_KEY]] = MarkedRow(
+                        error=err, original=row[ENLGLISH_KEY], translation=row[v.value]
                     )
                 if v not in updates_made:
                     updates_made[v] = 0
@@ -173,10 +174,16 @@ async def _update_results(
     return updates_made
 
 
-def _display_additional_variations(version_to_translation):
+def _display_additional_variations(
+        version_to_translation,
+        ENLGLISH_KEY: str,
+        existing_feedbacks: dict[ModelVersions, TranslationFeedbackV2]
+):
     st.divider()
     with st.expander(label='Additional Variations', expanded=False):
+
         for v, t in version_to_translation.items():
+            version_existing_feedback = existing_feedbacks.get(v)
             if is_multi_modal(v):
                 st.subheader(f'{v.value} Variations')
                 variations = [k.translations.available_versions() for k in t.subtitles if k.translations is not None]
@@ -190,18 +197,25 @@ def _display_additional_variations(version_to_translation):
 
                     data = {
                         'Time Stamp': [f'{row.start} --> {row.end}' for row in t.subtitles],
-                        'English': [row.content for row in t.subtitles],
-                        **{v: [] for v in available_versions}
+                        ENLGLISH_KEY: [row.content for row in t.subtitles],
+                        **{v: [] for v in available_versions},
+                        'Error': [None] * len(t.subtitles)
                     }
 
                     def addNoneRow():
                         for r in available_versions:
                             data[r].append(None)
 
-                    for row in t.subtitles:
+                    errors = {}
+                    if version_existing_feedback:
+                        for row in version_existing_feedback.marked_rows:
+                            errors[row['original']] = row['error']
+
+                    for idx, row in enumerate(t.subtitles):
+
                         if row.translations is not None:
+                            row_versions = row.translations.available_versions()
                             for rev in available_versions:
-                                row_versions = row.translations.available_versions()
                                 if rev in row_versions:
                                     raw_string = row.translations.get_suggestion(rev)
                                     if row.translations.selection == raw_string:
@@ -209,10 +223,17 @@ def _display_additional_variations(version_to_translation):
                                     data[rev].append(raw_string)
                                 else:
                                     data[rev].append(None)
+
+                            if row.content in errors:
+                                li: list = data['Error']
+                                li[idx] = errors[row.content]
+                                data['Error'] = li
+
                         else:
                             addNoneRow()
+
                     max_len = max([len(v) for v in data.values()])
-                    data['Correct'] = [None] * max_len
+                    data['Any Of Versions is Correct'] = [None] * max_len
                     df = pd.DataFrame(data)
 
                     def highlight_green(cell):
@@ -224,7 +245,7 @@ def _display_additional_variations(version_to_translation):
                     conf = {
                         **{col: st.column_config.TextColumn(width='large', disabled=True)
                            for col in available_versions},
-                        **{'Correct': SelectBoxColumn('Correct', ['Yes', 'No'])}
+                        **{'Any Of Versions is Correct': SelectBoxColumn('Any Of Versions is Correct', ['Yes', 'No'])}
                     }
                     edited_df = st.data_editor(styled, use_container_width=True, column_config=conf)
 
@@ -246,18 +267,28 @@ async def _newest_ever_compare_logic(project, translations: list[Translation], f
 
     _show_sidebar(project_name, project_id, first.target_language, version_to_translation.keys(), feedbacks)
 
-    df, error_cols, column_config, existing_errors_map = await construct_comparison_df(
-        version_to_translation=version_to_translation, existing_feedbacks=feedbacks, extra_rows=extra_rows
+    df, error_cols, column_config, existing_errors_map, ENLGLISH_KEY = await construct_comparison_df(
+        version_to_translation=version_to_translation,
+        existing_feedbacks=feedbacks,
+        extra_rows=extra_rows
     )
     edited_df = st.data_editor(df, column_config=column_config, use_container_width=True)
 
-    _display_additional_variations(version_to_translation)
+    _display_additional_variations(
+        version_to_translation=version_to_translation,
+        ENLGLISH_KEY=ENLGLISH_KEY,
+        existing_feedbacks=feedbacks
+    )
 
     if st.button('Submit'):
         updates_made = await _update_results(
-            project_name=project_name, edited_df=edited_df, error_cols=error_cols,
-            existing_errors_map=existing_errors_map, existing_feedbacks=feedbacks,
-            version_to_translation=version_to_translation
+            project_name=project_name,
+            edited_df=edited_df,
+            error_cols=error_cols,
+            existing_errors_map=existing_errors_map,
+            existing_feedbacks=feedbacks,
+            version_to_translation=version_to_translation,
+            ENLGLISH_KEY=ENLGLISH_KEY
         )
         st.success(f"Num Rows: {len(edited_df)}")
         for v, amount in updates_made.items():
@@ -269,12 +300,12 @@ async def _newest_ever_compare_logic(project, translations: list[Translation], f
             srt = rows_to_srt(rows=translation.subtitles, target_language=translation.target_language)
             og_srt = rows_to_srt(rows=translation.subtitles, translated=False)
             st.download_button(
-                label=f'Download {v.value} SRT', data=srt,
+                label=f'Download {v.value} {translation.target_language.capitalize()} SRT', data=srt,
                 file_name=f'{project_name}_{translation.target_language}_{v.value}.srt'
             )
             st.download_button(
-                label=f'Download {v.value} OG SRT', data=og_srt,
-                file_name=f'{project_name}_{translation.target_language}_{v.value}_OG.srt'
+                label=f'Download {v.value} English SRT', data=og_srt,
+                file_name=f'{project_name}_en_{v.value}_OG.srt'
             )
         st.cache_data.clear()
 
