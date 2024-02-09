@@ -9,9 +9,7 @@ from beanie import Link
 from beanie.odm.operators.find.comparison import In
 from pydantic import BaseModel
 
-from common.config import mongodb_settings
-from common.db import init_db
-from common.models.core import Project, Client
+from common.models.core import Project
 from common.models.translation import ModelVersions, Translation, TranslationSteps
 from common.utils import pct
 from new_comparsion import TranslationFeedbackV2
@@ -59,7 +57,7 @@ STATES_MAP = {
 }
 
 ALLOWED_VERSIONS = [v.value for v in (ModelVersions.V039, ModelVersions.V3, ModelVersions.V1, ModelVersions.V0310,
-                                      ModelVersions.V0310_G)]
+                                      ModelVersions.V0310_G, ModelVersions.V0311_GENDER)]
 
 
 async def _get_translations_stats() -> list[dict]:
@@ -78,7 +76,7 @@ async def _get_translations_stats() -> list[dict]:
             'name': projects[translation.project_id],
             'Amount Rows': len(translation.subtitles),
             'State': STATES_MAP[translation.flow_state.state.value],
-            # 'Took': get_took(translation.flow_state.took),
+            'Took': get_took(translation.flow_state.took),
             'Translated Rows in %': (100.0 if translation.flow_state.state == TranslationSteps.COMPLETED
                                      else pct(len(translation.rows_with_translation), len(translation.subtitles))),
             'Engine Version': translation.engine_version.value,

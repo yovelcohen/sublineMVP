@@ -266,6 +266,7 @@ class ModelVersions(str, Enum):
     V039 = 'v0.3.9'
     V0310 = 'v0.3.10'
     V0310_G = 'v0.3.10-g'
+    V0311_GENDER = 'v0.3.11-g'
     V310_SBS = 'v0.3.10-sbs'
 
     LATEST = V0310_G
@@ -291,10 +292,11 @@ class TranslationState(BaseModel):
     )
     audio_flow_execution_id: str | None = Field(None, alias='audioFlowExecutionId')
     state: TranslationSteps = TranslationSteps.PENDING
+    took: float = 0.0
 
 
 class Translation(BaseCreateUpdateDocument):
-    engine_version: ModelVersions = Field(default=ModelVersions.V034, alias='modelVersion')
+    engine_version: ModelVersions = Field(default=ModelVersions.LATEST, alias='modelVersion')
     project: Link[Project]
     target_language: str | None
 
