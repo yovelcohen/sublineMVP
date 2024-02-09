@@ -313,7 +313,7 @@ class Translation(BaseCreateUpdateDocument):
                 name="unique_together",
                 keys=[
                     ("project", pymongo.DESCENDING),
-                    ("target_language", pymongo.DESCENDING),
+                    ("targetLanguage", pymongo.DESCENDING),
                     ('modelVersion', pymongo.DESCENDING)
                 ],
                 unique=True
