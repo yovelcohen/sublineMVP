@@ -37,7 +37,7 @@ class Stats(BaseModel):
     totalChecked: int
     totalFeedbacks: int
     errorsCounter: dict[str, int]
-    errors: dict[str, list[dict[str, str | None]]]
+    errors: dict[str, list[dict[str, str |int| None]]]
     errorPct: float
     totalOgCharacters: int
     totalTranslatedCharacters: int
