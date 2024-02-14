@@ -24,7 +24,7 @@ def _show_sidebar(
         project_name: str,
         project_id: PydanticObjectId | str,
         target_language: str,
-        available_versions: list,
+        version_to_translation: dict[ModelVersions, Translation],
         feedbacks: dict[ModelVersions, TranslationFeedbackV2] | None = None
 ):
     amount, by_error_count = None, None
@@ -40,12 +40,15 @@ def _show_sidebar(
 
         amount = list(feedbacks.values())[0].total_rows
 
+    available_versions = list(version_to_translation.keys())
+
     with st.sidebar:
         info = {
             'Name': project_name,
             'Project ID': project_id,
             'Target Language': target_language,
-            'Available Version': ', '.join([v.value for v in available_versions])
+            'Available Version': ', '.join([v.value for v in available_versions]),
+            'Translations IDs': f'\n'.join([f'{v.value}: {t.id}' for v, t in version_to_translation.items() if t is not None])
         }
         if amount is not None:
             info['Amount Rows'] = amount
@@ -153,7 +156,7 @@ async def _update_results(
                     existing_errors_map[v][row[ENLGLISH_KEY]]['error'] = err
                 else:
                     existing_errors_map[v][row[ENLGLISH_KEY]] = MarkedRow(
-                        error=err, original=row[ENLGLISH_KEY], translation=row[v.value]
+                        error=err, original=row[ENLGLISH_KEY], translation=row[v.value], index=row['index']+1
                     )
                 if v not in updates_made:
                     updates_made[v] = 0
@@ -265,7 +268,7 @@ async def _newest_ever_compare_logic(project, translations: list[Translation], f
     version_to_translation: dict[ModelVersions, Translation] = {t.engine_version: t for t in translations}
     first = list(version_to_translation.values())[0]
 
-    _show_sidebar(project_name, project_id, first.target_language, version_to_translation.keys(), feedbacks)
+    _show_sidebar(project_name, project_id, first.target_language, version_to_translation, feedbacks)
 
     df, error_cols, column_config, existing_errors_map, ENLGLISH_KEY = await construct_comparison_df(
         version_to_translation=version_to_translation,

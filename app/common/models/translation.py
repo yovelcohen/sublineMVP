@@ -420,171 +420,48 @@ class Chunk(BaseModel):
         return self.rows[-1].index
 
 
-CostFields = (
-    'deepgram_minute', 'deepgram_summarization', 'assembly_ai_second', 'openai_input_token',
-    'openai_completion_token', 'openai_gpt3_input_token', 'openai_gpt3_completion_token',
-    'lemur_input_tokens', 'lemur_completion_tokens', 'smodin_suggestion_word_cost'
-)
+class TranslationError(str, Enum):
+    GENDER_MISTAKE = 'Gender Mistake'
+    TIME_TENSES = 'Time Tenses'
+    SLANG = 'Slang'
+    PREPOSITIONS = 'Prepositions'
+    TYPO = 'Typo'
+    NAME_AS_IS = 'Name "as is"'
+    NOT_FIT_IN_CONTEXT = 'Not fit in context'
+    NOT_FIT_IN_CONTEXT1 = 'not fit in context'
+    PLAIN_WRONG_TRANSLATION = 'Plain Wrong Translation'
+    NAMES = 'Names'
 
 
-class CostsConfig:
-    deepgram_minute: float | int = 0.0043
-    deepgram_summarization: float | int = 0.0044
-    assembly_ai_second = 0.0001028
-    openai_input_token: float | int = 0.01
-    openai_completion_token: float | int = 0.03
-    openai_gpt3_input_token: float | int = 0.0010
-    openai_gpt3_completion_token: float | int = 0.0020
-    lemur_input_tokens: float | int = 0.015
-    lemur_output_tokens: float | int = 0.043
-    smodin_suggestion_word_cost: float | int = 0.0001
-
-
-class Costs(BaseModel):
-    model_config = ConfigDict(extra='allow', alias_generator=document_alias_generator)
-
-    openai_input_token: float | int = 0
-    openai_completion_token: float | int = 0
-    openai_gpt3_input_token: float | int = 0
-    openai_gpt3_completion_token: float | int = 0
-    lemur_input_tokens: float | int = 0
-    lemur_completion_tokens: float | int = 0
-    deepgram_minutes: float | int = 0
-    assembly_ai_second: float | int = 0
-    smodin_words: float | int = 0
-
-    def __eq__(self, other):
-        return (
-                self.openai_input_token == other.openai_input_token
-                and self.openai_completion_token == other.openai_completion_token
-                and self.openai_gpt3_input_token == other.openai_gpt3_input_token
-                and self.openai_gpt3_completion_token == other.openai_gpt3_completion_token
-                and self.lemur_input_tokens == other.lemur_input_tokens
-                and self.lemur_completion_tokens == other.lemur_completion_tokens
-                and self.assembly_ai_second == other.assembly_ai_second
-                and self.deepgram_minutes == other.deepgram_minutes
-                and self.smodin_words == other.smodin_words
-        )
-
-    def __and__(self, other):
-        return self.__class__(
-            openai_input_token=self.units_of_1k(self.openai_input_token + other.openai_input_token),
-            openai_completion_token=self.units_of_1k(self.openai_completion_token + other.openai_completion_token),
-            openai_gpt3_input_token=self.units_of_1k(self.openai_gpt3_input_token + other.openai_gpt3_input_token),
-            openai_gpt3_completion_token=self.units_of_1k(
-                self.openai_gpt3_completion_token + other.openai_gpt3_completion_token
-            ),
-            lemur_input_tokens=self.units_of_1k(self.lemur_input_tokens + other.lemur_input_tokens),
-            lemur_completion_tokens=self.units_of_1k(self.lemur_completion_tokens + other.lemur_completion_tokens),
-            assembly_ai_second=self.assembly_ai_second + other.assembly_ai_second,
-            deepgram_minutes=self.deepgram_minutes + other.deepgram_minutes,
-            smodin_words=self.smodin_words + other.smodin_words,
-        )
-
-    @classmethod
-    def units_of_1k(cls, number: int) -> int | float:
-        units = number // 1000
-        if number % 1000 > 500:
-            units += 1
-        if units == 0:
-            units = number / 1000
-        return units
-
-
-class CostRecord(Document):
-    translation: Link[Translation]
-    costs: Costs
-
-    @property
-    def translation_id(self):
-        if isinstance(self.translation, Link):
-            return self.translation.ref.id
-        return self.translation.id  # noqa
-
-    def total_cost(self):
-        return (
-                self.costs.openai_input_token * CostsConfig.openai_input_token +
-                self.costs.openai_completion_token * CostsConfig.openai_completion_token +
-                self.costs.openai_gpt3_input_token * CostsConfig.openai_gpt3_input_token +
-                self.costs.openai_gpt3_completion_token * CostsConfig.openai_gpt3_completion_token +
-                self.costs.deepgram_minutes * CostsConfig.deepgram_minute +
-                self.costs.deepgram_minutes * CostsConfig.deepgram_summarization +
-                self.costs.lemur_input_tokens * CostsConfig.lemur_input_tokens +
-                self.costs.lemur_completion_tokens * CostsConfig.lemur_output_tokens +
-                self.costs.assembly_ai_second * CostsConfig.assembly_ai_second +
-                self.costs.smodin_words * CostsConfig.smodin_suggestion_word_cost
-        )
-
-    def __and__(self, other):
-        if not isinstance(other, (Costs, CostRecord)):
-            raise TypeError(f"unsupported operand type(s) for &: '{type(self)}' and '{type(other)}'")
-
-        costs = other.costs if isinstance(other, CostRecord) else other
-        self.costs.openai_input_token += Costs.units_of_1k(costs.openai_input_token)
-        self.costs.openai_completion_token += Costs.units_of_1k(costs.openai_completion_token)
-        self.costs.openai_gpt3_input_token += Costs.units_of_1k(costs.openai_gpt3_input_token)
-        self.costs.openai_gpt3_completion_token += Costs.units_of_1k(costs.openai_gpt3_completion_token)
-        self.costs.lemur_input_tokens += Costs.units_of_1k(costs.lemur_input_tokens)
-        self.costs.lemur_completion_tokens += Costs.units_of_1k(costs.lemur_completion_tokens)
-        self.costs.assembly_ai_second += costs.assembly_ai_second
-        self.costs.deepgram_minutes += costs.deepgram_minutes
-        self.costs.smodin_words += costs.smodin_words
-        return self
-
-
-class CostCatcher:
-    def __init__(self, translation_obj: Translation, reset_existing: bool = False):
-        self.translation_obj = translation_obj
-        self._costs = Costs()
-        self.reset_existing = reset_existing
-        self.obj = None
-
-    @property
-    def costs(self):
-        return self._costs
-
-    async def __aenter__(self):
-        return self
-
-    def update_openai_stats(self, input_tokens: int = 0, completion_tokens: int = 0, is_gpt3: bool = False):
-        if is_gpt3:
-            self._costs.openai_gpt3_input_token += input_tokens
-            self._costs.openai_gpt3_completion_token += completion_tokens
-        else:
-            self._costs.openai_input_token += input_tokens
-            self._costs.openai_completion_token += completion_tokens
-
-    def update_mistral_stats(self, input_tokens: int = 0):
-        self._costs.mistral_input_token += input_tokens
-
-    def update_deepgram_stats(self, minutes: int = 0):
-        self._costs.deepgram_minutes += minutes
-
-    def update_assembly_ai_seconds(self, seconds: int):
-        self._costs.assembly_ai_second += seconds
-
-    def update_assembly_ai_stats(self, input_tokens: int = 0, completion_tokens: int = 0):
-        self._costs.lemur_input_tokens += input_tokens
-        self._costs.lemur_completion_tokens += completion_tokens
-
-    async def __aexit__(self, exc_type, exc_val, exc_tb) -> NoReturn:
-        logging.info(f'Costs for Translation: {self.translation_obj.id} -- {self._costs.model_dump_json()}')
-        obj = await CostRecord.find(CostRecord.translation.id == self.translation_obj.id).first_or_none()  # noqa
-        if obj and self.reset_existing:
-            await obj.delete()
-        elif obj and not self.reset_existing:
-            obj.costs = self.costs & obj.costs
-            obj = await obj.save(ignore_revision=True)
-        else:
-            obj = CostRecord(translation=self.translation_obj, costs=self.costs)
-            await obj.save()
-        self.obj = obj
+class IntTranslationError(int, Enum):
+    GENDER_MISTAKE = 1
+    TIME_TENSES = 2
+    SLANG = 3
+    PREPOSITIONS = 4
+    TYPO = 5
+    NAME_AS_IS = 6
+    NOT_FIT_IN_CONTEXT = 7
+    NOT_FIT_IN_CONTEXT1 = NOT_FIT_IN_CONTEXT
+    PLAIN_WRONG_TRANSLATION = 9
+    NAMES = 10
 
 
 class MarkedRow(typing_extensions.TypedDict):
-    error: str
+    index: NotRequired[int]
+    error: TranslationError
     original: str
     translation: str | None
+    fixed: NotRequired[bool]
+    score: NotRequired[float]
+    guessedErrors: NotRequired[list[TranslationError]]
+
+
+def align_errors_names(marked_rows: list[MarkedRow]):
+    for row in marked_rows:
+        if isinstance(row['error'], str):
+            row['error'] = TranslationError(row['error'])
+        if row['error'] == TranslationError.NOT_FIT_IN_CONTEXT1:
+            row['error'] = TranslationError.NOT_FIT_IN_CONTEXT
 
 
 class TranslationFeedbackV2(Document):
@@ -599,8 +476,15 @@ class TranslationFeedbackV2(Document):
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
+    @field_validator('marked_rows', mode='before')
+    @classmethod
+    def validate_marked_rows(cls, marked_rows: list[MarkedRow]):
+        align_errors_names(marked_rows)
+        return marked_rows
+
     async def save(self, *args, **kwargs):
         self.updated_at = datetime.now()
+        align_errors_names(self.marked_rows)
         return await super().save(*args, **kwargs)
 
     class Settings:

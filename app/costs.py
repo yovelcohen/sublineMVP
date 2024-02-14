@@ -1,6 +1,6 @@
 import asyncio
 from datetime import timedelta
-from typing import Callable, Any
+from typing import Callable
 
 import beanie.exceptions
 import pandas as pd
@@ -13,7 +13,8 @@ import streamlit as st
 from common.config import mongodb_settings
 from common.db import init_db
 from common.models.core import Project, Client
-from common.models.translation import CostRecord, Translation, CostsConfig, Costs, ModelVersions
+from common.models.translation import Translation, ModelVersions
+from common.models.costs import CostRecord, CostsConfig, Costs
 
 
 class TranslationProjection(BaseModel):
@@ -57,24 +58,21 @@ async def _costs_panel():
     }
     data = []
 
+    lengths = {_id: format_length(t.subtitles[-1].end - t.subtitles[0].start) for _id, t in id_to_translation.items()}
     for record in costs:
         if record.translation_id in id_to_translation:
             rec_costs = record.costs
             di = {
                 'Name': names[id_to_translation[record.translation_id].project_id],
                 'Version': id_to_translation[record.translation_id].engine_version,
-                "Length": format_length(id_to_translation[record.translation_id].length),
+                "Length": lengths[record.translation_id],
                 'Num Rows': len(id_to_translation[record.translation_id].subtitles),
                 'Total Cost ($)': get_root_form(record.total_cost()),
                 'OpenAI Input Cost (tokens)': f'{format_multiplied(Costs.units_of_1k(rec_costs.openai_input_token), CostsConfig.openai_input_token)} (t: {record.costs.openai_input_token})',
                 'OpenAI Output Cost (tokens)': f'{format_multiplied(Costs.units_of_1k(rec_costs.openai_completion_token) / 1000, CostsConfig.openai_completion_token)} (t: {record.costs.openai_completion_token})',
+                'Assembly AI Cost (seconds)': f'{format_multiplied(rec_costs.assembly_ai_seconds, CostsConfig.assembly_ai_seconds)} (t: {record.costs.assembly_ai_seconds})',
+                'Assembly AI Input Cost (tokens)': f'{format_multiplied(Costs.units_of_1k(rec_costs.lemur_input_tokens), CostsConfig.lemur_output_tokens)} (t: {record.costs.lemur_input_tokens})'
             }
-            di[
-                'Assembly AI Cost (seconds)'] = f'{format_multiplied(rec_costs.assembly_ai_second, CostsConfig.assembly_ai_second)} (t: {record.costs.assembly_ai_second})'
-            di[
-                'Assembly AI Input Cost (tokens)'] = f'{format_multiplied(Costs.units_of_1k(rec_costs.lemur_input_tokens), CostsConfig.lemur_input_tokens)} (t: {record.costs.lemur_input_tokens})'
-            di[
-                'Assembly AI Input Cost (tokens)'] = f'{format_multiplied(Costs.units_of_1k(rec_costs.lemur_completion_tokens), CostsConfig.lemur_output_tokens)} (t: {record.costs.lemur_completion_tokens})'
 
             data.append(di)
 

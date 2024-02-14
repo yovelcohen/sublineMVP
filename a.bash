@@ -1,0 +1,18 @@
+az containerapp job create \
+    --name "my-job" \
+    --resource-group "my-resource-group"  \
+    --environment "my-environment" \
+    --trigger-type "Event" \
+    --replica-timeout 1800 \
+    --replica-retry-limit 0 \
+    --replica-completion-count 1 \
+     --parallelism 1 \
+     --image "docker.io/myuser/my-event-driven-job:latest" \
+     --cpu "0.25" \
+     --memory "0.5Gi" \
+     --min-executions "0" \
+      --max-executions "25"  --scale-rule-name "queue" \
+        --scale-rule-type "azure-queue" \
+        --scale-rule-metadata "accountName=mystorage" "queueName=myqueue" "queueLength=1" \
+        --scale-rule-auth "connection=connection-string-secret" \
+        --secrets "connection-string-secret=<QUEUE_CONNECTION_STRING>"

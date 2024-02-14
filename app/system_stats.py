@@ -194,12 +194,13 @@ def stats_for_version(stats: Stats):
     with col4:
         errors_pct = [err for err in df['Errors %'].to_list() if not isnan(err) and err != 0.0]
         errors = [err for err in df['Amount Errors'].to_list() if not isnan(err) and err != 0]
-        st.metric(
-            'Median Errors Count - Single Translation',
-            statistics.median(errors),
-            f'{statistics.median(errors_pct)}%',
-            delta_color='off'
-        )
+        if len(errors) > 0:
+            st.metric(
+                'Median Errors Count - Single Translation',
+                statistics.median(errors),
+                f'{statistics.median(errors_pct)}%',
+                delta_color='off'
+            )
         st.metric('Translated Words Count', _format_number(stats.amountTranslatedWords))
         prepositions_amount = stats.errorsCounter.get('Prepositions', 0)
         prepositions_in_pct = pct(prepositions_amount, total_errors)
