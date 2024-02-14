@@ -48,7 +48,8 @@ def _show_sidebar(
             'Project ID': project_id,
             'Target Language': target_language,
             'Available Version': ', '.join([v.value for v in available_versions]),
-            'Translations IDs': f'\n'.join([f'{v.value}: {t.id}' for v, t in version_to_translation.items() if t is not None])
+            'Translations IDs': f'\n'.join(
+                [f'{v.value}: {t.id}' for v, t in version_to_translation.items() if t is not None])
         }
         if amount is not None:
             info['Amount Rows'] = amount
@@ -145,7 +146,7 @@ async def _update_results(
         ENLGLISH_KEY: str
 ):
     updates_made = dict()
-    for row in edited_df.to_dict(orient='records'):
+    for index, row in enumerate(edited_df.to_dict(orient='records'), start=1):
         for col in error_cols:
             err = row[col]
             v = ModelVersions(col.split(' ')[0])
@@ -156,7 +157,7 @@ async def _update_results(
                     existing_errors_map[v][row[ENLGLISH_KEY]]['error'] = err
                 else:
                     existing_errors_map[v][row[ENLGLISH_KEY]] = MarkedRow(
-                        error=err, original=row[ENLGLISH_KEY], translation=row[v.value], index=row['index']+1
+                        error=err, original=row[ENLGLISH_KEY], translation=row[v.value], index=index
                     )
                 if v not in updates_made:
                     updates_made[v] = 0
