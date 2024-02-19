@@ -267,6 +267,7 @@ class ModelVersions(str, Enum):
     V0310 = 'v0.3.10'
     V0310_G = 'v0.3.10-g'
     V0311_GENDER = 'v0.3.11-g'
+    V0311 = 'v0.3.11'
     V310_SBS = 'v0.3.10-sbs'
 
     LATEST = V0310_G
@@ -454,6 +455,7 @@ class MarkedRow(typing_extensions.TypedDict):
     fixed: NotRequired[bool]
     score: NotRequired[float]
     guessedErrors: NotRequired[list[TranslationError]]
+    correctForm: NotRequired[str]
 
 
 def align_errors_names(marked_rows: list[MarkedRow]):
