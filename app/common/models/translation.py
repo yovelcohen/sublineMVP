@@ -268,9 +268,10 @@ class ModelVersions(str, Enum):
     V0310_G = 'v0.3.10-g'
     V0311_GENDER = 'v0.3.11-g'
     V0311 = 'v0.3.11'
+    V0312 = 'v0.3.12'
     V310_SBS = 'v0.3.10-sbs'
 
-    LATEST = V0310_G
+    LATEST = V0311
 
 
 is_multi_modal = lambda v: v.value.startswith('v3') or '.3.' in v.value

@@ -91,17 +91,17 @@ async def construct_comparison_df(
         extra_rows: list[SRTBlock] | None = None
 ):
     last = list(version_to_translation.values())[-1]
-    error_cols, ENLGLISH_KEY = list(), f'English (from: {last.engine_version.value.lower()})'
+    error_cols, english_key = list(), f'English (from: {last.engine_version.value.lower()})'
     data = {
         'Time Stamp': [f'{row.start} --> {row.end}' for row in last.subtitles],
-        ENLGLISH_KEY: [row.content for row in last.subtitles]
+        english_key: [row.content for row in last.subtitles]
     }
     if extra_rows:
         data['Uploaded Subtitles'] = [strip_tags(row.content) for row in extra_rows]
 
-    column_config = {ENLGLISH_KEY: st.column_config.TextColumn(width='large', disabled=True)}
+    column_config = {english_key: st.column_config.TextColumn(width='large', disabled=True)}
 
-    existing_errors_map: dict[str, MarkedRow] = dict()  # noqa
+    existing_errors_map: dict[str, dict[str, MarkedRow]] = dict()  # noqa
     labels = ['Gender Mistake', 'Time Tenses', 'Slang', 'Prepositions', 'Typo',
               'Name "as is"', 'Not fit in context', 'Plain Wrong Translation']
     for v, t in reversed(version_to_translation.items()):
@@ -113,6 +113,7 @@ async def construct_comparison_df(
         ]
         data[v.value] = version_translation
         column_config[v.value] = st.column_config.TextColumn(width='large', disabled=True)
+        column_config[f'{v.value} Correction'] = st.column_config.TextColumn(width='large', disabled=False)
         if any([row.speaker_gender is not None for row in t.subtitles]):
             data['Speaker Gender'] = [row.speaker_gender for row in t.subtitles]
             column_config['Speaker Gender'] = st.column_config.TextColumn(width='small', disabled=True)
@@ -122,10 +123,14 @@ async def construct_comparison_df(
             feedback = existing_feedbacks[v]
             existing_errors_map[v] = {row['original']: row for row in feedback.marked_rows}
             data[err_key] = [
-                existing_errors_map[v].get(content, {}).get('error', None) for content in data[ENLGLISH_KEY]  # noqa
+                existing_errors_map[v].get(content, {}).get('error', None) for content in data[english_key]
+            ]
+            data[f'{v.value} Correction'] = [
+                existing_errors_map[v].get(content, {}).get('correctForm', content) for content in data[english_key]
             ]
         else:
             data[err_key] = [None] * len(data[v.value])
+            data[f'{v.value} Correction'] = [None] * len(data[v.value])
 
     maxlen = max([len(v) for v in data.values()])
     for k, v in data.items():
@@ -133,7 +138,7 @@ async def construct_comparison_df(
             data[k] = v + ([None] * (maxlen - len(v)))
 
     df = pd.DataFrame(data)
-    return df, error_cols, column_config, existing_errors_map, ENLGLISH_KEY
+    return df, error_cols, column_config, existing_errors_map, english_key
 
 
 async def _update_results(
@@ -157,7 +162,8 @@ async def _update_results(
                     existing_errors_map[v][row[ENLGLISH_KEY]]['error'] = err
                 else:
                     existing_errors_map[v][row[ENLGLISH_KEY]] = MarkedRow(
-                        error=err, original=row[ENLGLISH_KEY], translation=row[v.value], index=index
+                        error=err, original=row[ENLGLISH_KEY], translation=row[v.value], index=index,
+                        correctForm=row.get(f'{v.value} Correction')
                     )
                 if v not in updates_made:
                     updates_made[v] = 0

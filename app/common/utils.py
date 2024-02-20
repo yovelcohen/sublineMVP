@@ -8,8 +8,7 @@ from pathlib import Path
 from typing import cast, NoReturn, Literal
 
 import asyncio
-from azure.storage.blob import generate_blob_sas, BlobSasPermissions
-from azure.storage.blob.aio import BlobServiceClient
+from azure.storage.blob import BlobServiceClient, generate_blob_sas, BlobSasPermissions
 from srt import sort_and_reindex
 
 from common.config import settings
@@ -25,8 +24,7 @@ SAS_UPLOADER_PERMISSIONS = BlobSasPermissions(write=True, add=True, create=True)
 SAS_READ_PERMISSIONS = _DEFAULT_SAS_PERMISSIONS
 
 
-async def upload_blob_to_azure(container_name: str, blob_name: str | Path,
-                               data: str | bytes | StringIO | BytesIO) -> NoReturn:
+def upload_blob_to_azure(container_name: str, blob_name: str | Path, data: str | bytes | StringIO | BytesIO):
     """
     Uploads data to Azure Blob Storage.
 
@@ -41,25 +39,13 @@ async def upload_blob_to_azure(container_name: str, blob_name: str | Path,
     # Get the container client
     container_client = blob_service_client.get_container_client(container_name)
     blob_client = container_client.get_blob_client(blob_name)
-    await blob_client.upload_blob(data, overwrite=True)
+    blob_client.upload_blob(data, overwrite=True)
 
 
-async def download_azure_blob(container_name: str, blob_name: str | Path) -> bytes | str:
+def download_azure_blob(container_name: str, blob_name: str | Path) -> bytes | str:
     blob_name = str(blob_name)
-    try:
-        blob_client = blob_service_client.get_blob_client(container=container_name, blob=blob_name)
-        chunks_list = []
-        async with blob_client as blob:
-            stream = await blob.download_blob()
-            async for chunk in stream.chunks():
-                chunks_list.append(chunk)
-        if isinstance(chunks_list[0], str):
-            return ''.join(chunks_list)
-        return b''.join(chunks_list)
-
-    except Exception as e:
-        logging.error(f"failing to download blob {blob_name} from container {container_name}")
-        raise e
+    blob_client = blob_service_client.get_blob_client(container=container_name, blob=blob_name)
+    return blob_client.download_blob().readall()
 
 
 def generate_presigned_url(
@@ -89,19 +75,19 @@ def generate_presigned_url(
     return blob_url
 
 
-async def check_blob_exists(container_name: str, blob_name: str | Path) -> bool:
+def check_blob_exists(container_name: str, blob_name: str | Path) -> bool:
     blob_name = str(blob_name)
     try:
         blob_client = blob_service_client.get_blob_client(container=container_name, blob=blob_name)
-        return await blob_client.exists()
+        return blob_client.exists()
     except Exception as e:
         return False
 
 
-async def list_blobs_in_path(container_name, folder_name) -> list[str]:
+def list_blobs_in_path(container_name, folder_name) -> list[str]:
     folder_name = str(folder_name)
     container_client = blob_service_client.get_container_client(container_name)
-    return [blob.name async for blob in container_client.list_blobs(name_starts_with=folder_name)]
+    return [blob.name for blob in container_client.list_blobs(name_starts_with=folder_name)]
 
 
 _rtl_punctuation_pattern = re.compile(r'([\u0590-\u05FF]+)([,.])')

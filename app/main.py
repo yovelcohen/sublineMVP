@@ -13,12 +13,13 @@ from beanie.odm.operators.find.comparison import In
 from pydantic import BaseModel, model_validator, Field
 from streamlit.runtime.uploaded_file_manager import UploadedFile
 
+from app.detailed_translation import detailed_translation_panel
 from services.parsers.convertors import xml_to_srt
 from services.parsers.format_handlers import srt_to_rows
 from common.models.core import Project, Client, ClientChannel
 from common.config import mongodb_settings
 from common.db import init_db
-from common.models.translation import Translation, ModelVersions
+from common.models.translation import Translation, ModelVersions, is_multi_modal
 from common.models.users import User
 
 # Streamlit Applications
@@ -146,8 +147,8 @@ class TranslationLight(BaseModel):
 
 async def _get_viewer_data() -> dict[str, list]:
     translations = await Translation.find(
-        In(Translation.engine_version, [ModelVersions.V039.value, ModelVersions.V1.value,
-                                        ModelVersions.V3.value, ModelVersions.V0310.value, ModelVersions.V0310_G.value])
+        In(Translation.engine_version,
+           [*[v for v in ModelVersions if is_multi_modal(v)], ModelVersions.V1.value, ])
     ).project(TranslationLight).to_list()
     pids = {t.project_id for t in translations}
     fbs, projects = await asyncio.gather(
@@ -274,6 +275,7 @@ def manage_existing():
 if st.session_state["authentication_status"] is True:
     page_names_to_funcs = {
         'Subtitles Viewer': subtitles_viewer_from_db,
+        'Detailed Translation Viewer': detailed_translation_panel,
         'Engine Stats': view_stats,
         'Engine Stats 2': stats,
         'Manage Existing Translations': manage_existing,
