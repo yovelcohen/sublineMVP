@@ -13,7 +13,6 @@ from beanie.odm.operators.find.comparison import In
 from pydantic import BaseModel, model_validator, Field
 from streamlit.runtime.uploaded_file_manager import UploadedFile
 
-from app.detailed_translation import detailed_translation_panel
 from services.parsers.convertors import xml_to_srt
 from services.parsers.format_handlers import srt_to_rows
 from common.models.core import Project, Client, ClientChannel
@@ -30,6 +29,7 @@ from prompt_viewer import view_prompts
 from new_stats import stats
 from system_stats import get_stats, view_stats, get_data_for_stats, THREE_MINUTES
 from tag_gender import gender_tagger
+from detailed_translation import detailed_translation_panel
 
 streamlit.logger.get_logger = logging.getLogger
 streamlit.logger.setup_formatter = None
