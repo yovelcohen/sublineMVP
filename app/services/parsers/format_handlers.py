@@ -171,6 +171,8 @@ class XMLHandler(BaseHandler):
 
 
 def srt_to_rows(raw_content: SrtString) -> list[SRTBlock]:
+    if isinstance(raw_content, bytes):
+        raw_content = raw_content.decode('utf-8')
     return sorted(
         [SRTBlock(index=row.index, start=row.start, end=row.end, content=row.content)
          for row in srt.parse(raw_content)],
