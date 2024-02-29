@@ -158,7 +158,7 @@ class SRTBlock(BaseModel):
         data['index'] = int(index)
         return data
 
-    def to_srt(self, *, strict=True, eol="\n", translated: bool = True):
+    def to_srt(self, *, translated: bool = True, strict=True, eol="\n"):
         r"""
         Convert the current :py:class:`Subtitle` to an SRT block.
 
@@ -200,17 +200,28 @@ class SRTBlock(BaseModel):
 
 class TranslationSteps(str, Enum):
     """
-    PENDING -> IN_PROGRESS -> AUDIO_ANALYSIS ->
-        VIDEO_ANALYSIS -> TRANSLATING -> COMPLETED
+    PENDING ->  IN_PROGRESS -> AUDIO_EXTRACTION -> AUDIO_ANALYSIS ->
+        GENERATE_EPISODE_SUMMARY -> GENERATE_TRANSLATION_SUGGESTIONS -> RANK_AND_JUDGE -> COMPLETED
     |||--> FAILED
     """
     PENDING = 'pe'
     IN_PROGRESS = 'ip'
+    AUDIO_EXTRACTION = 'fae'
     AUDIO_ANALYSIS = 'aa'
-    VIDEO_ANALYSIS = 'va'
-    TRANSLATING = 'tr'
+    GENERATE_EPISODE_SUMMARY = 'ges'
+    GENERATE_TRANSLATION_SUGGESTIONS = 'gts'
+    RANK_AND_JUDGE = 'rj'
     COMPLETED = 'co'
+
     FAILED = 'fa'
+
+    RUNNING_STATES = [
+        IN_PROGRESS, AUDIO_EXTRACTION, AUDIO_ANALYSIS, GENERATE_EPISODE_SUMMARY,
+        GENERATE_TRANSLATION_SUGGESTIONS, RANK_AND_JUDGE
+    ]
+
+    MIGHT_BE_STALE = [PENDING, *RUNNING_STATES]
+    FINAL_STATES = [COMPLETED, FAILED]
 
 
 class Ages(int, Enum):
@@ -457,6 +468,7 @@ class MarkedRow(typing_extensions.TypedDict):
     score: NotRequired[float]
     guessedErrors: NotRequired[list[TranslationError]]
     correctForm: NotRequired[str]
+    genderPredictionIsCorrect: NotRequired[bool]
 
 
 def align_errors_names(marked_rows: list[MarkedRow]):
