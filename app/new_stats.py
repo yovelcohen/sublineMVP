@@ -73,3 +73,11 @@ async def get_stats_df():
 
 def stats():
     return asyncio.run(get_stats_df())
+
+# TODO:
+#  - Add average by error type
+#  - Change "amount feedback" to "total reviews"
+#  - Error rate by type and origin temperature
+#  - Build a Reviewer that gets for a chunk all of the previous reviews and the current translations.
+#  - Export 15 episodes in French without any prompt.
+

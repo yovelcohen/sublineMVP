@@ -113,7 +113,6 @@ async def construct_comparison_df(
         ]
         data[v.value] = version_translation
         column_config[v.value] = st.column_config.TextColumn(width='large', disabled=True)
-        column_config[f'{v.value} Correction'] = st.column_config.TextColumn(width='large', disabled=False)
         if any([row.speaker_gender is not None for row in t.subtitles]):
             data['Speaker Gender'] = [row.speaker_gender for row in t.subtitles]
             column_config['Speaker Gender'] = st.column_config.TextColumn(width='small', disabled=True)
@@ -127,16 +126,12 @@ async def construct_comparison_df(
             data[err_key] = [
                 existing_errors_map[v].get(content, {}).get('error', None) for content in data[english_key]
             ]
-            data[f'{v.value} Correction'] = [
-                existing_errors_map[v].get(content, {}).get('correctForm', '') for content in data[english_key]
-            ]
             data[f'{v.value} Gender Prediction'] = [
-                existing_errors_map[v].get(content, {}).get('genderPredictionIsCorrect', '') for content in
+                existing_errors_map[v].get(content, {}).get('genderPredictionIsCorrect', None) for content in
                 data[english_key]
             ]
         else:
             data[err_key] = [None] * len(data[v.value])
-            data[f'{v.value} Correction'] = [None] * len(data[v.value])
             data[f'{v.value} Gender Prediction'] = [None] * len(data[v.value])
 
     maxlen = max([len(v) for v in data.values()])
