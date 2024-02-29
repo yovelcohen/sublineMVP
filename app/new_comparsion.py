@@ -67,7 +67,7 @@ def _show_sidebar(
                     divider='rainbow'
                 )
                 counts = dict(sorted(counts.items(), key=lambda x: x[1], reverse=True))
-                repr_obj = '  \n'.join([f'{err} - {count}' for err, count in counts.items()])
+                repr_obj = '  \n'.join([f'{err.value} - {count}' for err, count in counts.items()])
                 st.info(repr_obj)
 
         if any([is_multi_modal(v) for v in available_versions]):
@@ -117,6 +117,8 @@ async def construct_comparison_df(
         if any([row.speaker_gender is not None for row in t.subtitles]):
             data['Speaker Gender'] = [row.speaker_gender for row in t.subtitles]
             column_config['Speaker Gender'] = st.column_config.TextColumn(width='small', disabled=True)
+            column_config[f'{v.value} Gender Prediction'] = SelectBoxColumn(f'{v.value} Gender Prediction',
+                                                                            ['Correct', 'Incorrect'])
         error_cols.append(err_key)
 
         if v in existing_feedbacks:
@@ -126,11 +128,16 @@ async def construct_comparison_df(
                 existing_errors_map[v].get(content, {}).get('error', None) for content in data[english_key]
             ]
             data[f'{v.value} Correction'] = [
-                existing_errors_map[v].get(content, {}).get('correctForm', content) for content in data[english_key]
+                existing_errors_map[v].get(content, {}).get('correctForm', '') for content in data[english_key]
+            ]
+            data[f'{v.value} Gender Prediction'] = [
+                existing_errors_map[v].get(content, {}).get('genderPredictionIsCorrect', '') for content in
+                data[english_key]
             ]
         else:
             data[err_key] = [None] * len(data[v.value])
             data[f'{v.value} Correction'] = [None] * len(data[v.value])
+            data[f'{v.value} Gender Prediction'] = [None] * len(data[v.value])
 
     maxlen = max([len(v) for v in data.values()])
     for k, v in data.items():
@@ -163,7 +170,8 @@ async def _update_results(
                 else:
                     existing_errors_map[v][row[ENLGLISH_KEY]] = MarkedRow(
                         error=err, original=row[ENLGLISH_KEY], translation=row[v.value], index=index,
-                        correctForm=row.get(f'{v.value} Correction')
+                        correctForm=row.get(f'{v.value} Correction'),
+                        genderPredictionIsCorrect=row.get(f'{v.value} Gender Prediction')
                     )
                 if v not in updates_made:
                     updates_made[v] = 0
