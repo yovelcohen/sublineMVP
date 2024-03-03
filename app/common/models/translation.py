@@ -280,6 +280,7 @@ class ModelVersions(str, Enum):
     V0311_GENDER = 'v0.3.11-g'
     V0311 = 'v0.3.11'
     V0312 = 'v0.3.12'
+    V0313 = 'v0.3.13'
     V310_SBS = 'v0.3.10-sbs'
 
     LATEST = V0311
