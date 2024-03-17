@@ -1,14 +1,15 @@
 import re
+from dataclasses import asdict, fields
 from datetime import timedelta, datetime
 from enum import Enum
 from pathlib import Path
-from typing import Final, Self, Never, cast, NotRequired, Iterable, Literal
+from typing import Final, Self, Never, cast, NotRequired, Literal, Annotated
 
 import pymongo
 import typing_extensions
 import yaml
 from beanie import Link, PydanticObjectId, Document
-from pydantic import Field, BaseModel, model_validator, ConfigDict, field_validator, TypeAdapter
+from pydantic import Field, BaseModel, model_validator, ConfigDict, field_validator, TypeAdapter, BeforeValidator
 from pydantic.dataclasses import dataclass
 from pymongo import IndexModel
 
@@ -20,12 +21,14 @@ from common.models.core import Project
 from common.models.consts import TranslationSteps, ModelVersions
 from common.utils import timedelta_to_srt_timestamp
 
+MAX_SENTENCE_LEN: Final[int] = 32
+MAX_SENTENCES_IN_SUBTITLE: Final[int] = 2
+NOT_SET: Final[str] = "-1"
+_TAGS_REGEX = re.compile(r'<[^>]+>')
+
 
 def is_v_symbol(field_name: str | VSymbolType) -> bool:
     return len(field_name) == 2 and field_name.startswith('v') and field_name[1:].isdigit()
-
-
-MAX_SENTENCE_LEN: Final[int] = 32
 
 
 def split_sentences(sentence: str) -> str:
@@ -49,16 +52,36 @@ def split_sentences(sentence: str) -> str:
     return '\n'.join(split_sentences)
 
 
-NOT_SET: Final[str] = "-1"
-OtherTypeError = lambda operand, other: TypeError(
-    f"unsupported operand {operand} for: 'SRTBlock' and '{type(other)}'"
-)
-
-tag_re = re.compile(r'<[^>]+>')
+def raise_other_type_error(operand, other):
+    return TypeError(f"unsupported operand {operand} for: 'SRTBlock' and '{type(other)}'")
 
 
 def strip_tags(xml_str) -> str:
-    return tag_re.sub('', xml_str)
+    return _TAGS_REGEX.sub('', xml_str)
+
+
+@dataclass(config=ConfigDict(alias_generator=document_alias_generator, populate_by_name=True, extra='allow'))
+class TranslationReviewScores:
+    IsValidTranslation: int
+    Reasoning: str
+    MeaningConsistencyScore: int = -1
+    ProofreadingGrammar: int = -1
+    CorrectGenderContextOrGrammaticalPerson: int = -1
+    CorrectGenderOrGrammaticalPerson: int = -1
+
+    @classmethod
+    def from_names(cls, data: dict):
+        """
+        LLM sometimes answer in lowercase so we need to handle that with this
+        """
+        lowered = {x.name.lower(): x.name for x in fields(cls)}
+        lowered.pop('correctgendercontextorgrammaticalperson')
+        data = {k.lower(): v for k, v in data.items()}
+        clean = {}
+        for lowered_name, field in lowered.items():
+            if lowered_name in data:
+                clean[field] = data[lowered_name]
+        return cls(**clean)
 
 
 class TranslationSuggestions(BaseModel):
@@ -75,6 +98,7 @@ class TranslationSuggestions(BaseModel):
 
     selected_version: VSymbolType | Literal['-1'] = NOT_SET
     edit_suggestion: list[str] | None = None
+    scores: TranslationReviewScores | None = None
 
     @classmethod
     def from_strings(cls, sentences: list[SentenceType]) -> Self | None:
@@ -84,27 +108,27 @@ class TranslationSuggestions(BaseModel):
         :returns: a new TranslationSuggestions object or None if no sentences were provided.
         """
         _cls = cls(
-            v1=cls.prepare_sentence(sentences.pop(0)),
-            v2=cls.prepare_sentence(sentences.pop(0)) if len(sentences) > 1 else None
+            v1=cls.prepare_subtitle(sentences.pop(0)),
+            v2=cls.prepare_subtitle(sentences.pop(0)) if len(sentences) > 1 else None
         )
         for sentence in sentences:
             _cls.add_suggestion(sentence)
         return _cls
 
     @classmethod
-    def prepare_sentence(cls, sentence: SentenceType):
-        sentence = sentence.strip()
-        sentence = strip_tags(sentence)
+    def prepare_subtitle(cls, sentence: SentenceType):
+        sentence = strip_tags(sentence.strip())
         # TODO: the split should be used only on outputting subtitles in a format that requires it.
         #       when doing it here, it just leads to extra tokens and might confuse the llm if appears much.
-        # return split_sentences(sentence) if (len(sentence) > MAX_SENTENCE_LEN and '\n' not in sentence) else sentence
+        # sentence = split_sentences(sentence) if (len(sentence) > MAX_SENTENCE_LEN and '\n' not in sentence) else sentence
+        sentence = '\n'.join([s.strip() for s in sentence.splitlines() if s.strip() != ''])
         return sentence
 
     def __repr__(self):
         versions_map = self.as_suggestions_dict()
         if self.selected_version != NOT_SET:
             versions_map[self.selected_version] = f'**{versions_map[self.selected_version]}**'
-        return f'TranslationSuggestions:\n{yaml.dump(versions_map)}'
+        return f'TranslationSuggestions:\n{yaml.dump(versions_map, allow_unicode=True)}'
 
     @property
     def is_set(self):
@@ -125,14 +149,14 @@ class TranslationSuggestions(BaseModel):
                                    if none, will not set a selection on the new/updated object.
         :param inplace: if True, merges others into Self, if False, creates a new TranslationSuggestions instance.
         """
-        others, all_versions = list(others), {i.lower(): i for i in self.get_suggestions()}
+        others, all_versions = list(others), {i.lower(): i for i in self.get_suggestions_list()}
 
         def recursively_extract_all_versions(_others):
             for idx, other in enumerate(_others):
                 if isinstance(other, list):
                     return recursively_extract_all_versions(other)
                 else:
-                    suggestions = other.get_suggestions()
+                    suggestions = other.get_suggestions_list()
                     all_versions.update({s.lower(): s for s in suggestions})
 
         if inplace:
@@ -151,7 +175,7 @@ class TranslationSuggestions(BaseModel):
 
     @property
     def selection(self) -> SentenceType | None:
-        return getattr(self, self.selected_version) if self.selected_version != NOT_SET else None
+        return getattr(self, self.selected_version) if self.is_set else None
 
     def as_suggestions_dict(self) -> dict[VSymbolType, SentenceType]:
         return {k: getattr(self, k) for k in self.available_versions()}
@@ -162,12 +186,12 @@ class TranslationSuggestions(BaseModel):
     def available_versions(self) -> set[VSymbolType]:
         return {f for f in (self.model_fields_set | set(self.model_extra.keys())) if is_v_symbol(f)}
 
-    def get_suggestions(self) -> list[SentenceType]:
+    def get_suggestions_list(self) -> list[SentenceType]:
         return [getattr(self, k).strip() for k in self.available_versions() if getattr(self, k) is not None]
 
     def add_suggestion(self, new_sentence: SentenceType) -> VSymbolType:
-        new_sentence = self.prepare_sentence(new_sentence)
-        if new_sentence.lower() in map(lambda x: x.lower(), self.get_suggestions()):
+        new_sentence = self.prepare_subtitle(new_sentence)
+        if new_sentence.lower() in map(lambda x: x.lower(), self.get_suggestions_list()):
             return self.reverse_map()[new_sentence]
         max_ = max([int(k[1:]) for k in self.available_versions()])
         key = f'v{max_ + 1}'
@@ -199,15 +223,6 @@ class TranslationSuggestions(BaseModel):
             else:  # new sentence completely, need to add first, then set.
                 key = self.add_suggestion(version_or_sentence)
                 self.selected_version = key
-
-    def re_rank(self, ranks: list[VSymbolType]) -> Self:
-        original = self.as_suggestions_dict()
-        new_strings = [original.pop(f'v{rank}') for rank in ranks]
-        ts = TranslationSuggestions(v1=new_strings.pop(0), v2=new_strings.pop(0) if new_strings else None)
-        ts.set_selection('v1')
-        for sentence in new_strings:
-            ts.add_suggestion(sentence)
-        return ts
 
 
 @dataclass(config=ConfigDict(alias_generator=document_alias_generator, extra='forbid', populate_by_name=True))
@@ -242,7 +257,7 @@ class SRTBlock(BaseModel):
     index: RowIndex
     start: timedelta
     end: timedelta
-    content: SentenceType
+    content: Annotated[SentenceType, BeforeValidator(lambda x: TranslationSuggestions.prepare_subtitle(x))]
     translations: TranslationSuggestions | None = None
 
     speaker: str | int | None = None
@@ -264,8 +279,6 @@ class SRTBlock(BaseModel):
         style = data.pop('style', None)
         if isinstance(style, (SubtitleStyle, dict)):
             data['style'] = style
-        if content := data.get('content'):
-            data['content'] = strip_tags(content.strip())
         return data
 
     @property
@@ -289,33 +302,33 @@ class SRTBlock(BaseModel):
 
     def __sub__(self, other):
         if not isinstance(other, SRTBlock):
-            raise OtherTypeError("subtraction", other)
+            raise raise_other_type_error("subtraction", other)
         self_duration = self.end - self.start
         other_duration = other.end - other.start
         return self_duration - other_duration
 
     def __eq__(self, other):
         if not isinstance(other, SRTBlock):
-            raise OtherTypeError("equality", other)
+            raise raise_other_type_error("equality", other)
         return self.index == other.index and self.content == other.content
 
     def __lt__(self, other):
         if not isinstance(other, SRTBlock):
-            raise OtherTypeError("less than", other)
+            raise raise_other_type_error("less than", other)
         return (self.start, self.end) < (other.start, other.end) and self.index < other.index
 
     def __gt__(self, other):
         if isinstance(other, timedelta):
             return self.start > other
         if not isinstance(other, SRTBlock):
-            raise OtherTypeError("greater than", other)
+            raise raise_other_type_error("greater than", other)
         return (self.start, self.end) > (other.start, other.end) and self.index > other.index
 
     def __le__(self, other):
         if isinstance(other, timedelta):
             return self.start < other
         if not isinstance(other, SRTBlock):
-            raise OtherTypeError("less than or equal", other)
+            raise raise_other_type_error("less than or equal", other)
         return (self.start, self.end) <= (other.start, other.end) and self.index <= other.index
 
     def __repr__(self):
@@ -391,18 +404,8 @@ class Translation(BaseCreateUpdateDocument):
     results_path: Path | None = None
     flow_state: TranslationState | None = Field(default_factory=TranslationState)
 
-    # class Settings:
-    #     indexes = [
-    #         IndexModel(
-    #             name="unique_together",
-    #             keys=[
-    #                 ("project", pymongo.DESCENDING),
-    #                 ("targetLanguage", pymongo.DESCENDING),
-    #                 ('modelVersion', pymongo.DESCENDING)
-    #             ],
-    #             unique=True
-    #         )
-    #     ]
+    class Settings:
+        bson_encoders = {TranslationReviewScores: lambda x: asdict(x) if x else None}
 
     def __hash__(self):
         return hash(str(self.id))

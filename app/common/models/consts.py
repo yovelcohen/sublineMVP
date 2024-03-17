@@ -79,5 +79,7 @@ class ModelVersions(str, Enum):
     V0312 = 'v0.3.12'
     V0313 = 'v0.3.13'
     V0314 = 'v0.3.14'
+    V0315 = 'v0.3.15'
+    V0316 = 'v0.3.16'
 
-    LATEST = V0312
+    LATEST = V0316

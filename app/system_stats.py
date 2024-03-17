@@ -11,7 +11,8 @@ import streamlit as st
 
 from common.consts import MILLION, BILLION, TEN_K, THREE_MINUTES
 from common.models.core import Project
-from common.models.translation import ModelVersions, Translation, TranslationSteps
+from common.models.translation import Translation
+from common.models.consts import ModelVersions, TranslationSteps
 from common.utils import pct
 from new_comparsion import TranslationFeedbackV2
 
@@ -43,7 +44,9 @@ class Stats(BaseModel):
 
 
 ALLOWED_VERSIONS = [v.value for v in (ModelVersions.V039, ModelVersions.V1, ModelVersions.V0310,
-                                      ModelVersions.V0311, ModelVersions.V0312, ModelVersions.V0313)]
+                                      ModelVersions.V0311, ModelVersions.V0312, ModelVersions.V0313,
+                                      ModelVersions.V0313, ModelVersions.V0314, ModelVersions.V0315,
+                                      ModelVersions.V0316)]
 
 
 async def _get_translations_stats() -> list[dict]:
@@ -106,14 +109,14 @@ async def get_stats(data, fbs) -> list[Stats]:
         for v in set([version.value for version in ModelVersions if version.value in ALLOWED_VERSIONS])
     }
 
-    raw_fbs_stats = []
+    raw_fbs_stats = defaultdict(list)
     for feedback in fbs:
         version = feedback.version
         by_v[version]['feedbacks'].extend(feedback.marked_rows)
         by_v[version]['sum_checked_rows'] += feedback.total_rows
         by_v[version]['all_names'].add(feedback.name)
         by_v[version]['name_to_count'][feedback.name] = len(feedback.marked_rows)
-        raw_fbs_stats.append(
+        raw_fbs_stats[feedback.version].append(
             {
                 'Name': feedback.name,
                 'Version': feedback.version,
@@ -154,7 +157,7 @@ async def get_stats(data, fbs) -> list[Stats]:
             amountOgWords=sum([row['Amount OG Words'] for row in data['translations']]),
             amountTranslatedWords=sum([row['Amount Translated Words'] for row in data['translations']]),
             translations=data['translations'],
-            raw_fbs_stats=raw_fbs_stats
+            raw_fbs_stats=raw_fbs_stats.get(v, [])
         ) for v, data in by_v.items() if data['count'] > 0]
     return stats
 
@@ -249,11 +252,14 @@ def view_stats():
         totalTranslatedCharacters=sum([s.totalTranslatedCharacters for s in stats_list]),
         amountOgWords=sum([s.amountOgWords for s in stats_list]),
         amountTranslatedWords=sum([s.amountTranslatedWords for s in stats_list]),
-        translations=translations
+        translations=translations,
+        raw_fbs_stats=[]
     )
     tabs = st.tabs([stats.version.value.upper() for stats in stats_list] + ['Total'])
     for tab, stats in zip(tabs[:-1], stats_list):
         with tab:
             stats_for_version(stats)
+        total_stats.raw_fbs_stats.extend((stats.raw_fbs_stats or []))
+
     with tabs[-1]:
         stats_for_version(total_stats)

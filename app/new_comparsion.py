@@ -11,7 +11,6 @@ from beanie.odm.operators.find.comparison import In
 from pydantic import BaseModel, Field, model_validator
 from streamlit.runtime.uploaded_file_manager import UploadedFile
 
-from streamlit_utils import SelectBoxColumn
 from common.models.consts import ModelVersions
 from common.config import mongodb_settings
 from common.db import init_db
@@ -126,17 +125,18 @@ async def construct_comparison_df(
     from streamlit_utils import SelectBoxColumn
 
     column_config[err_key] = SelectBoxColumn(err_key, labels)
-    version_translation = [
-        row.translations.selection if row.translations is not None else None for row in t.subtitles
-    ]
-    data[newest_v.value] = version_translation
+    data[newest_v.value] = [row.translations.selection if row.translations is not None else None for row in t.subtitles]
     column_config[newest_v.value] = st.column_config.TextColumn(width='large', disabled=True)
-    data[f'{newest_v.value} is Correct'] = [None] * len(t.subtitles)
-    column_config[f'{newest_v.value} is Correct'] = SelectBoxColumn(f'{newest_v.value} is Correct', ['Yes', 'No'])
+    data['Is Marked'] = [
+        True if row.translations and row.translations.scores is not None and row.translations.scores.IsValidTranslation == 1 else False
+        for row in t.subtitles
+    ]
+    column_config['Is Marked'] = st.column_config.TextColumn(width='small', disabled=True)
 
     if any([row.speaker_gender is not None for row in t.subtitles]):
         data['Speaker Gender'] = [row.speaker_gender for row in t.subtitles]
         column_config['Speaker Gender'] = st.column_config.TextColumn(width='small', disabled=True)
+
     error_cols.append(err_key)
 
     for fb_v, fb in existing_feedbacks.items():
@@ -147,10 +147,6 @@ async def construct_comparison_df(
             existing_errors_map[fb_v.value] = {row['original']: row for row in feedback.marked_rows}
             data[err_key] = [
                 existing_errors_map[fb_v.value].get(content, {}).get('error', None) for content in data[english_key]
-            ]
-            data[f'{newest_v.value} is Correct'] = [
-                existing_errors_map[fb_v.value].get(content, {}).get('correctForm', None) for content in
-                data[english_key]
             ]
 
     maxlen = max([len(v) for v in data.values()])
@@ -184,8 +180,7 @@ async def _update_results(
                 else:
                     existing_errors_map[v][row[ENLGLISH_KEY]] = MarkedRow(
                         error=err, original=row[ENLGLISH_KEY],
-                        translation=row[v.value], index=index,
-                        correctForm=row.get(f'{v.value} is Correct')
+                        translation=row[v.value], index=index
                     )
                 if v not in updates_made:
                     updates_made[v] = 0
@@ -264,8 +259,6 @@ def _display_additional_variations(
                         else:
                             addNoneRow()
 
-                    max_len = max([len(v) for v in data.values()])
-                    data['Any Of Versions is Correct'] = [None] * max_len
                     df = pd.DataFrame(data)
 
                     def highlight_green(cell):
@@ -275,9 +268,7 @@ def _display_additional_variations(
 
                     styled = df.style.map(highlight_green)
                     conf = {
-                        **{col: st.column_config.TextColumn(width='large', disabled=True)
-                           for col in available_versions},
-                        **{'Any Of Versions is Correct': SelectBoxColumn('Any Of Versions is Correct', ['Yes', 'No'])}
+                        col: st.column_config.TextColumn(width='large', disabled=True) for col in available_versions
                     }
                     edited_df = st.data_editor(styled, use_container_width=True, column_config=conf)
 

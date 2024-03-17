@@ -1,11 +1,12 @@
 from enum import Enum
-from typing import NewType, Final, Literal, TypeVar, TypeAlias, Annotated
+from typing import Final, Literal, TypeVar, TypeAlias, Annotated
 
 from annotated_types import Predicate
 
 XMLString = TypeVar('XMLString', bound=str | bytes)
 SrtString = TypeVar('SrtString', bound=str)
 JsonStr = TypeVar('JsonStr', bound=str)
+YamlStr = TypeVar('YamlStr', bound=str)
 VTTString = TypeVar('VTTString', bound=str)
 
 MALE: Final[str] = 'male'
