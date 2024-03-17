@@ -23,6 +23,7 @@ from common.models.translation import (
 from common.utils import rows_to_srt, pct
 from services.parsers.convertors import xml_to_srt
 from services.parsers.format_handlers import srt_to_rows
+from streamlit_utils import SelectBoxColumn
 
 
 def is_multi_modal(v: ModelVersions):
@@ -122,7 +123,6 @@ async def construct_comparison_df(
     existing_errors_map: dict[str, dict[str, MarkedRow]] = dict()  # noqa
     labels = ['Gender Mistake', 'Time Tenses', 'Slang', 'Prepositions', 'Typo',
               'Name "as is"', 'Not fit in context', 'Plain Wrong Translation']
-    from streamlit_utils import SelectBoxColumn
 
     column_config[err_key] = SelectBoxColumn(err_key, labels)
     data[newest_v.value] = [row.translations.selection if row.translations is not None else None for row in t.subtitles]
