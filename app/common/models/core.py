@@ -1,15 +1,13 @@
 from datetime import datetime
 from enum import Enum
-from pathlib import Path
 
 import pymongo
-from beanie import Document, PydanticObjectId, Link
+from beanie import Document, PydanticObjectId, Link, Indexed
 from pydantic import Field, BaseModel, model_validator, ConfigDict
-from pymongo import IndexModel
+from pymongo import IndexModel, DESCENDING
 
-from common.models.base import BaseDocument, document_alias_generator
-
-from common.consts import AllowedSourceLanguages
+from common.consts import LanguageCode  # noqa
+from common.models.base import document_alias_generator, DEFAULT_CONFIG, id_from_ref_or_obj  # noqa
 
 
 class ClientTypes(str, Enum):
@@ -23,19 +21,15 @@ class ClientSpecification(BaseModel):
 
 
 class Client(Document):
-    name: str
+    model_config = DEFAULT_CONFIG
+    name: Indexed(str, unique=True)
     slug: str | None = None
     client_spec: ClientSpecification = Field(default_factory=ClientSpecification)
     created_at: datetime = Field(default_factory=datetime.now)
 
 
-class ProjectTypes(str, Enum):
-    MOVIE = 'movie'
-    SERIES = 'series'
-
-
 class ClientChannel(Document):
-    model_config = BaseDocument.model_config
+    model_config = DEFAULT_CONFIG
 
     name: str
     email: str = ''
@@ -45,9 +39,14 @@ class ClientChannel(Document):
     class Settings:
         indexes = [
             IndexModel(name='client_name_unique',
-                       keys=[('client', pymongo.DESCENDING), ('name', pymongo.DESCENDING)],
+                       keys=[('client', DESCENDING), ('name', DESCENDING)],
                        unique=True)
         ]
+
+
+class ProjectTypes(str, Enum):
+    MOVIE = 'movie'
+    SERIES = 'series'
 
 
 class Ages(int, Enum):
@@ -57,6 +56,8 @@ class Ages(int, Enum):
     TWELVE = 12
     SIXTEEN = 16
     EIGHTEEN = 18
+
+    NOOP = ZERO
 
 
 class Genres(str, Enum):
@@ -113,22 +114,37 @@ class ProjectDescription(BaseModel):
         return data
 
 
-class Project(Document):
-    model_config = {**BaseDocument.model_config, 'use_enum_values': True}
-
-    name: str
-    source_language: AllowedSourceLanguages | None = None
-
-    description: ProjectDescription | None = Field(default_factory=lambda: ProjectDescription())
-
-    type: ProjectTypes | None = None
+class ProjectMediaMetaData(BaseModel):
+    mime_type: str | None = Field(default=None, description='Video mime type')
+    audio_mime_type: str | None = Field(default=None, description='Audio mime type')
+    original_subs_mime_type: str | None = Field(default=None, description='Original subtitles mime type')
     season: int | None = None
     episode: int | None = None
-    mime_type: str | None = None
+
+    video_duration: float | None = Field(default=None, description='Video duration in seconds')
+    amount_rows: int | None = Field(default=None, description='Amount of rows in the original subtitles')
+
+    model_config = ConfigDict(alias_generator=document_alias_generator, populate_by_name=True)
+
+
+class BaseProject(BaseModel):
+    name: str
+    source_language: LanguageCode | None = None
+    type: ProjectTypes | None = None
+    description: ProjectDescription | None = Field(default_factory=lambda: ProjectDescription())
+
+
+class Project(Document, BaseProject):
+    model_config = {**DEFAULT_CONFIG, 'use_enum_values': True}
+
+    # TODO: Delete these fields
+    media_meta: ProjectMediaMetaData = Field(default_factory=lambda: ProjectMediaMetaData())
 
     client: Link[Client]
-    parent: Link['Project'] | None = None
     channel: Link[ClientChannel] | None = None
+
+    parent: Link['Project'] | None = None
+    path: str | None = None
 
     uploader_id: PydanticObjectId | None = None
     allowed_editors: list[PydanticObjectId] = Field(
@@ -138,6 +154,8 @@ class Project(Document):
     created_at: datetime = Field(default_factory=datetime.now)
     updated_at: datetime = Field(default_factory=datetime.now)
 
+    # translations: list[NestedTranslation] = Field(default_factory=list)
+
     class Settings:
         indexes = [
             # IndexModel(
@@ -146,9 +164,7 @@ class Project(Document):
             #         ("client", pymongo.DESCENDING),
             #         ('parent', pymongo.DESCENDING),
             #         ("name", pymongo.DESCENDING),
-            #         ("type", pymongo.DESCENDING),
-            #         ("season", pymongo.DESCENDING),
-            #         ("episode", pymongo.DESCENDING),
+            #         ("source_language", pymongo.DESCENDING),
             #     ],
             #     unique=True,
             # ),
@@ -158,25 +174,28 @@ class Project(Document):
             )
         ]
 
+    def __repr__(self):
+        base = f'<Project {self.id} {self.name}'
+        if self.type == ProjectTypes.SERIES:
+            if self.media_meta.season:
+                base += f' S{self.media_meta.season}'
+            if self.media_meta.episode:
+                base += f' E{self.media_meta.episode}'
+        base += ' Last updated at: ' + str(self.updated_at)
+        return base + '>'
+
+    @property
+    def parent_id(self) -> PydanticObjectId | None:
+        return id_from_ref_or_obj(self.parent)
+
+    @property
+    def client_id(self) -> PydanticObjectId:
+        return id_from_ref_or_obj(self.client)
+
+    @property
+    def channel_id(self) -> PydanticObjectId | None:
+        return id_from_ref_or_obj(self.channel)
+
     @property
     def is_root(self) -> bool:
-        return not self.parent
-
-    @property
-    def qualifying_name(self) -> str:
-        base = self.name
-        if self.type == ProjectTypes.SERIES:
-            base += f' S{self.season}E{self.episode}'
-        return base
-
-    @property
-    def base_blob_path(self) -> Path:
-        return Path(str(self.id))
-
-    @property
-    def video_blob_path(self) -> Path:
-        return self.base_blob_path / 'video' / f'video.{self.mime_type}'
-
-    @property
-    def audio_blob_path(self) -> Path:
-        return self.base_blob_path / 'audio' / 'audio.wav'
+        return not self.project.parent

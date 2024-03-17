@@ -1,14 +1,23 @@
 from enum import Enum
-from typing import NewType, Final, Literal
+from typing import NewType, Final, Literal, TypeVar, TypeAlias, Annotated
 
-XMLString = str | bytes
-SrtString = NewType('SrtString', str)
-JsonStr = NewType('JsonStr', str)
-VTTString = NewType('VTTString', str)
+from annotated_types import Predicate
+
+XMLString = TypeVar('XMLString', bound=str | bytes)
+SrtString = TypeVar('SrtString', bound=str)
+JsonStr = TypeVar('JsonStr', bound=str)
+VTTString = TypeVar('VTTString', bound=str)
 
 MALE: Final[str] = 'male'
 FEMALE: Final[str] = 'female'
 Gender = Literal[MALE, FEMALE]  # type: ignore
+
+RowIndex: TypeAlias = int
+RowIndexJson: TypeAlias = str  # represents the index when it returns from a json
+VSymbolType: TypeAlias = str
+SentenceType: TypeAlias = str
+SimilarityScore: TypeAlias = Annotated[float, Predicate(lambda x: -1 <= x <= 1.1)]
+EnglishSentenceType = Annotated[SentenceType, "English"]
 
 
 class AllowedSourceLanguages(str, Enum):
@@ -80,3 +89,18 @@ class AllowedSourceLanguages(str, Enum):
     "Hebrew"
 
     HEBREW = he
+
+
+LanguageCode = AllowedSourceLanguages
+
+TEN_K, MILLION, BILLION = 10_000, 1_000_000, 1_000_000_000
+TWO_HOURS = 60 * 60 * 2
+THREE_MINUTES = 60 * 3
+
+
+class AllowedLanguagesForTranslation(str, Enum):
+    fr = 'fr'
+    es = 'es'
+    ru = 'ru'
+    he = 'he'
+    en = 'en_us'

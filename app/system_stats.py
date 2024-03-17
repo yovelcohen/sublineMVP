@@ -5,20 +5,15 @@ from math import isnan
 from typing import Literal
 
 import pandas as pd
-from beanie import Link
 from beanie.odm.operators.find.comparison import In
 from pydantic import BaseModel
+import streamlit as st
 
+from common.consts import MILLION, BILLION, TEN_K, THREE_MINUTES
 from common.models.core import Project
 from common.models.translation import ModelVersions, Translation, TranslationSteps
 from common.utils import pct
 from new_comparsion import TranslationFeedbackV2
-
-import streamlit as st
-
-TEN_K, MILLION, BILLION = 10_000, 1_000_000, 1_000_000_000
-TWO_HOURS = 60 * 60 * 2
-THREE_MINUTES = 60 * 3
 
 
 def _format_number(num):
@@ -37,27 +32,18 @@ class Stats(BaseModel):
     totalChecked: int
     totalFeedbacks: int
     errorsCounter: dict[str, int]
-    errors: dict[str, list[dict[str, str |int| None]]]
+    errors: dict[str, list[dict[str, str | int | None]]]
     errorPct: float
     totalOgCharacters: int
     totalTranslatedCharacters: int
     amountOgWords: int
     amountTranslatedWords: int
     translations: list[dict]
+    raw_fbs_stats: list[dict] | None = None
 
 
-STATES_MAP = {
-    'pe': 'Pending',
-    'ip': 'In Progress',
-    'aa': "Audio Intelligence",
-    'va': "Video Intelligence",
-    'tr': "Translating",
-    'co': 'Completed',
-    'fa': 'Failed'
-}
-
-ALLOWED_VERSIONS = [v.value for v in (ModelVersions.V039, ModelVersions.V3, ModelVersions.V1, ModelVersions.V0310,
-                                      ModelVersions.V0310_G, ModelVersions.V0311_GENDER)]
+ALLOWED_VERSIONS = [v.value for v in (ModelVersions.V039, ModelVersions.V1, ModelVersions.V0310,
+                                      ModelVersions.V0311, ModelVersions.V0312, ModelVersions.V0313)]
 
 
 async def _get_translations_stats() -> list[dict]:
@@ -75,7 +61,6 @@ async def _get_translations_stats() -> list[dict]:
             'id': translation.id,
             'name': projects[translation.project_id],
             'Amount Rows': len(translation.subtitles),
-            'State': STATES_MAP[translation.flow_state.state.value],
             'Took': get_took(translation.flow_state.took),
             'Translated Rows in %': (100.0 if translation.flow_state.state == TranslationSteps.COMPLETED
                                      else pct(len(translation.rows_with_translation), len(translation.subtitles))),
@@ -118,15 +103,25 @@ async def get_stats(data, fbs) -> list[Stats]:
     by_v = {
         v: {'feedbacks': list(), 'sum_checked_rows': 0, 'all_names': set(), 'translations': [],
             'name_to_count': dict(), 'by_error': defaultdict(list), 'count': 0}
-        for v in set([t['Engine Version'] for t in data])
+        for v in set([version.value for version in ModelVersions if version.value in ALLOWED_VERSIONS])
     }
 
+    raw_fbs_stats = []
     for feedback in fbs:
         version = feedback.version
         by_v[version]['feedbacks'].extend(feedback.marked_rows)
         by_v[version]['sum_checked_rows'] += feedback.total_rows
         by_v[version]['all_names'].add(feedback.name)
         by_v[version]['name_to_count'][feedback.name] = len(feedback.marked_rows)
+        raw_fbs_stats.append(
+            {
+                'Name': feedback.name,
+                'Version': feedback.version,
+                'Amount Errors': len(feedback.marked_rows),
+                'Total Rows': feedback.total_rows,
+                'Errors %': round(pct(len(feedback.marked_rows), feedback.total_rows), 2)
+            }
+        )
         by_v[version]['count'] += 1
         for row in feedback.marked_rows:
             if row['error'] not in (None, 'None'):
@@ -146,19 +141,21 @@ async def get_stats(data, fbs) -> list[Stats]:
         translation['Errors %'] = round(pct(amount_errors, translation['Amount Rows']), 1)
         by_v[version]['translations'].append(translation)
 
-    stats = [Stats(
-        version=v,
-        totalChecked=data['sum_checked_rows'],
-        totalFeedbacks=data['count'],
-        errorsCounter={key: len(val) for key, val in data['by_error'].items()},
-        errors=data['by_error'],
-        errorPct=pct(len(data['feedbacks']), data['sum_checked_rows']),
-        totalOgCharacters=sum([row['Amount OG Characters'] for row in data['translations']]),
-        totalTranslatedCharacters=sum([row['Amount Translated Characters'] for row in data['translations']]),
-        amountOgWords=sum([row['Amount OG Words'] for row in data['translations']]),
-        amountTranslatedWords=sum([row['Amount Translated Words'] for row in data['translations']]),
-        translations=data['translations']
-    ) for v, data in by_v.items()]
+    stats = [
+        Stats(
+            version=v,
+            totalChecked=data['sum_checked_rows'],
+            totalFeedbacks=data['count'],
+            errorsCounter={key: len(val) for key, val in data['by_error'].items()},
+            errors=data['by_error'],
+            errorPct=pct(len(data['feedbacks']), data['sum_checked_rows']),
+            totalOgCharacters=sum([row['Amount OG Characters'] for row in data['translations']]),
+            totalTranslatedCharacters=sum([row['Amount Translated Characters'] for row in data['translations']]),
+            amountOgWords=sum([row['Amount OG Words'] for row in data['translations']]),
+            amountTranslatedWords=sum([row['Amount Translated Words'] for row in data['translations']]),
+            translations=data['translations'],
+            raw_fbs_stats=raw_fbs_stats
+        ) for v, data in by_v.items() if data['count'] > 0]
     return stats
 
 
@@ -171,15 +168,8 @@ def stats_for_version(stats: Stats):
     num_items = len(error_items)
     items_per_column = (num_items + 2) // 4  # +2 for rounding up when dividing by 3
 
-    data = stats.translations
-    for i in data:
-        i.pop('Delete', None)
-
+    data = stats.raw_fbs_stats
     df = pd.DataFrame(data)
-    df = df[['name', 'State', 'Engine Version', 'Translated Rows in %', 'Reviewed', 'Amount Rows',
-             'Amount Errors', 'Errors %', 'Amount OG Words', 'Amount Translated Words',
-             'Amount OG Characters', 'Amount Translated Characters']]
-    df['Amount Errors'] = df['Amount Errors'].apply(lambda x: int(x) if not isnan(x) else x)
     df = df.round(2)
 
     with col1:

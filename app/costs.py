@@ -5,16 +5,13 @@ from typing import Callable
 import beanie.exceptions
 import pandas as pd
 from beanie import PydanticObjectId
-from beanie.odm.operators.find.comparison import In
 from pydantic import BaseModel, Field
 
 import streamlit as st
 
 from common.config import mongodb_settings
 from common.db import init_db
-from common.models.core import Project, Client
-from common.models.translation import Translation, ModelVersions
-from common.models.costs import CostRecord, CostsConfig, Costs
+from common.models.costs import CostsInfo
 
 
 class TranslationProjection(BaseModel):
@@ -40,54 +37,41 @@ def get_root_form(num):
 
 
 async def _costs_panel():
-    async def get_costs():
-        return await CostRecord.find_all(ignore_cache=True).to_list()
+    async def get_costs() -> list[CostsInfo]:
+        return await CostsInfo.find_all(ignore_cache=True).to_list()
 
     try:
         costs = await get_costs()
     except beanie.exceptions.CollectionWasNotInitialized as e:
-        await init_db(mongodb_settings, [CostRecord, Translation, Project, Client])
+        await init_db(mongodb_settings, [CostsInfo])
         costs = await get_costs()
 
-    costs: list[CostRecord]
-
-    names = {proj.id: proj.name for proj in await Project.find_all().to_list()}
-    vs = [v.value for v in (ModelVersions.V039, ModelVersions.V0310)]
-    id_to_translation: dict[PydanticObjectId, Translation] = {
-        tr.id: tr for tr in await Translation.find(In(Translation.engine_version, vs)).to_list()
-    }
-    data = []
-
-    lengths = {_id: format_length(t.subtitles[-1].end - t.subtitles[0].start) for _id, t in id_to_translation.items()}
-    for record in costs:
-        if record.translation_id in id_to_translation:
-            rec_costs = record.costs
-            di = {
-                'Name': names[id_to_translation[record.translation_id].project_id],
-                'Version': id_to_translation[record.translation_id].engine_version,
-                "Length": lengths[record.translation_id],
-                'Num Rows': len(id_to_translation[record.translation_id].subtitles),
-                'Total Cost ($)': get_root_form(record.total_cost()),
-                'OpenAI Input Cost (tokens)': f'{format_multiplied(Costs.units_of_1k(rec_costs.openai_input_token), CostsConfig.openai_input_token)} (t: {record.costs.openai_input_token})',
-                'OpenAI Output Cost (tokens)': f'{format_multiplied(Costs.units_of_1k(rec_costs.openai_completion_token) / 1000, CostsConfig.openai_completion_token)} (t: {record.costs.openai_completion_token})',
-                'Assembly AI Cost (seconds)': f'{format_multiplied(rec_costs.assembly_ai_seconds, CostsConfig.assembly_ai_seconds)} (t: {record.costs.assembly_ai_seconds})',
-                'Assembly AI Input Cost (tokens)': f'{format_multiplied(Costs.units_of_1k(rec_costs.lemur_input_tokens), CostsConfig.lemur_output_tokens)} (t: {record.costs.lemur_input_tokens})'
-            }
-
-            data.append(di)
+    data = [
+        {'Name': info.project_name, 'Duration': format_length(timedelta(seconds=info.video_duration)),
+         'Total Cost': round(info.calculate_total_cost(), 3),
+         'Language': info.target_language.value, 'Model Version': info.engine_version.value}
+        for info in costs
+    ]
 
     df = pd.DataFrame(data)
     st.data_editor(df, disabled=True, use_container_width=True)
-    st.text(
-        """------------------------------------------------
-For OpenAI and Assembly AI, the cost is N $ per 1k tokens. 
-So the token count in the brackets is multiplied * 1000.
+    st.divider()
+    st.subheader('Detailed Breakdown')
 
-For Assembly AI's transcription, which is mandatory in order 
-to access the Lemur LLM, the cost is N $ per 1k seconds. 
-So the seconds count in the brackets is multiplied * 1000.
-"""
-    )
+    detailed_data = [
+        {
+            'Name': info.project_name, 'Duration': format_length(timedelta(seconds=info.video_duration)),
+            'GPT 4 Input Tokens Cost': info.calculate_cost_by_field_name('gpt4_input_token'),
+            'GPT 4 Completion Tokens Cost': info.calculate_cost_by_field_name('gpt4_completion_token'),
+            'Deepgram Cost': info.calculate_cost_by_field_name('deepgram_minute'),
+            'Gender Recognition Cost': info.calculate_cost_by_field_name('presentid_rapidapi'),
+            'GPT 3 Input Tokens Cost': info.calculate_cost_by_field_name('gpt3_input_token'),
+            'GPT 3 Completion Tokens Cost': info.calculate_cost_by_field_name('gpt3_completion_token')
+        }
+        for info in costs
+    ]
+    detailed_df = pd.DataFrame(detailed_data)
+    st.data_editor(detailed_df, disabled=True, use_container_width=True, key='detailedview')
 
 
 def costs_panel():

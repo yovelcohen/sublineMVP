@@ -1,23 +1,38 @@
 import asyncio
 import logging
 import re
+from collections import defaultdict
 from typing import DefaultDict
 
 import pandas as pd
 import streamlit as st
-from beanie import PydanticObjectId
+from beanie import PydanticObjectId, Link
+from beanie.odm.operators.find.comparison import In
+from pydantic import BaseModel, Field, model_validator
+from streamlit.runtime.uploaded_file_manager import UploadedFile
 
 from streamlit_utils import SelectBoxColumn
+from common.models.consts import ModelVersions
 from common.config import mongodb_settings
 from common.db import init_db
+from common.consts import THREE_MINUTES
 from common.models.users import User
 from common.models.core import Project, ClientChannel, Client
 from common.models.translation import (
-    Translation, ModelVersions, is_multi_modal, SRTBlock, TranslationFeedbackV2, MarkedRow
+    Translation, SRTBlock, TranslationFeedbackV2, MarkedRow
 )
 from common.utils import rows_to_srt, pct
+from services.parsers.convertors import xml_to_srt
+from services.parsers.format_handlers import srt_to_rows
 
-TWO_HOURS = 60 * 60 * 2
+
+def is_multi_modal(v: ModelVersions):
+    return '0.3.' in v.value
+
+
+def version_to_tuple(version: ModelVersions):
+    parts = version.value[1:].split(".")
+    return tuple(int(part) for part in parts)
 
 
 def _show_sidebar(
@@ -49,7 +64,8 @@ def _show_sidebar(
             'Target Language': target_language,
             'Available Version': ', '.join([v.value for v in available_versions]),
             'Translations IDs': f'\n'.join(
-                [f'{v.value}: {t.id}' for v, t in version_to_translation.items() if t is not None])
+                [f'{v.value}: {t.id}' for v, t in version_to_translation.items() if t is not None]
+            )
         }
         if amount is not None:
             info['Amount Rows'] = amount
@@ -90,11 +106,14 @@ async def construct_comparison_df(
         existing_feedbacks: dict[ModelVersions, TranslationFeedbackV2],
         extra_rows: list[SRTBlock] | None = None
 ):
-    last = list(version_to_translation.values())[-1]
-    error_cols, english_key = list(), f'English (from: {last.engine_version.value.lower()})'
+    newest_v = max(list(version_to_translation.keys()), key=version_to_tuple)
+    t = version_to_translation[newest_v]
+    err_key = f'{newest_v.value} Error'
+
+    error_cols, english_key = list(), f'English (from: {t.engine_version.value.lower()})'
     data = {
-        'Time Stamp': [f'{row.start} --> {row.end}' for row in last.subtitles],
-        english_key: [row.content for row in last.subtitles]
+        'Time Stamp': [f'{row.start} --> {row.end}' for row in t.subtitles],
+        english_key: [row.content for row in t.subtitles]
     }
     if extra_rows:
         data['Uploaded Subtitles'] = [strip_tags(row.content) for row in extra_rows]
@@ -104,35 +123,35 @@ async def construct_comparison_df(
     existing_errors_map: dict[str, dict[str, MarkedRow]] = dict()  # noqa
     labels = ['Gender Mistake', 'Time Tenses', 'Slang', 'Prepositions', 'Typo',
               'Name "as is"', 'Not fit in context', 'Plain Wrong Translation']
-    for v, t in reversed(version_to_translation.items()):
-        err_key = f'{v.value} Error'
-        from streamlit_utils import SelectBoxColumn
-        column_config[err_key] = SelectBoxColumn(err_key, labels)
-        version_translation = [
-            row.translations.selection if row.translations is not None else None for row in t.subtitles
-        ]
-        data[v.value] = version_translation
-        column_config[v.value] = st.column_config.TextColumn(width='large', disabled=True)
-        if any([row.speaker_gender is not None for row in t.subtitles]):
-            data['Speaker Gender'] = [row.speaker_gender for row in t.subtitles]
-            column_config['Speaker Gender'] = st.column_config.TextColumn(width='small', disabled=True)
-            column_config[f'{v.value} Gender Prediction'] = SelectBoxColumn(f'{v.value} Gender Prediction',
-                                                                            ['Correct', 'Incorrect'])
-        error_cols.append(err_key)
+    from streamlit_utils import SelectBoxColumn
 
-        if v in existing_feedbacks:
-            feedback = existing_feedbacks[v]
-            existing_errors_map[v] = {row['original']: row for row in feedback.marked_rows}
+    column_config[err_key] = SelectBoxColumn(err_key, labels)
+    version_translation = [
+        row.translations.selection if row.translations is not None else None for row in t.subtitles
+    ]
+    data[newest_v.value] = version_translation
+    column_config[newest_v.value] = st.column_config.TextColumn(width='large', disabled=True)
+    data[f'{newest_v.value} is Correct'] = [None] * len(t.subtitles)
+    column_config[f'{newest_v.value} is Correct'] = SelectBoxColumn(f'{newest_v.value} is Correct', ['Yes', 'No'])
+
+    if any([row.speaker_gender is not None for row in t.subtitles]):
+        data['Speaker Gender'] = [row.speaker_gender for row in t.subtitles]
+        column_config['Speaker Gender'] = st.column_config.TextColumn(width='small', disabled=True)
+    error_cols.append(err_key)
+
+    for fb_v, fb in existing_feedbacks.items():
+        if fb_v == newest_v:
+            continue
+        else:
+            feedback = existing_feedbacks[newest_v]
+            existing_errors_map[fb_v.value] = {row['original']: row for row in feedback.marked_rows}
             data[err_key] = [
-                existing_errors_map[v].get(content, {}).get('error', None) for content in data[english_key]
+                existing_errors_map[fb_v.value].get(content, {}).get('error', None) for content in data[english_key]
             ]
-            data[f'{v.value} Gender Prediction'] = [
-                existing_errors_map[v].get(content, {}).get('genderPredictionIsCorrect', None) for content in
+            data[f'{newest_v.value} is Correct'] = [
+                existing_errors_map[fb_v.value].get(content, {}).get('correctForm', None) for content in
                 data[english_key]
             ]
-        else:
-            data[err_key] = [None] * len(data[v.value])
-            data[f'{v.value} Gender Prediction'] = [None] * len(data[v.value])
 
     maxlen = max([len(v) for v in data.values()])
     for k, v in data.items():
@@ -164,9 +183,9 @@ async def _update_results(
                     existing_errors_map[v][row[ENLGLISH_KEY]]['error'] = err
                 else:
                     existing_errors_map[v][row[ENLGLISH_KEY]] = MarkedRow(
-                        error=err, original=row[ENLGLISH_KEY], translation=row[v.value], index=index,
-                        correctForm=row.get(f'{v.value} Correction'),
-                        genderPredictionIsCorrect=row.get(f'{v.value} Gender Prediction')
+                        error=err, original=row[ENLGLISH_KEY],
+                        translation=row[v.value], index=index,
+                        correctForm=row.get(f'{v.value} is Correct')
                     )
                 if v not in updates_made:
                     updates_made[v] = 0
@@ -230,7 +249,7 @@ def _display_additional_variations(
                             row_versions = row.translations.available_versions()
                             for rev in available_versions:
                                 if rev in row_versions:
-                                    raw_string = row.translations.get_suggestion(rev)
+                                    raw_string = getattr(row.translations, rev)
                                     if row.translations.selection == raw_string:
                                         raw_string = f':: {raw_string}'
                                     data[rev].append(raw_string)
@@ -345,4 +364,122 @@ def newest_ever_compare(project_id, extra_rows: list[SRTBlock] | None = None):
     existing_feedbacks: dict[ModelVersions, TranslationFeedbackV2] = {fb.version: fb for fb in fbs}
     return asyncio.run(
         _newest_ever_compare_logic(project=proj, translations=ts, feedbacks=existing_feedbacks, extra_rows=extra_rows)
+
     )
+
+
+class TranslationLight(BaseModel):
+    id: PydanticObjectId = Field(..., alias='_id')
+    project: Link[Project]
+    engine_version: ModelVersions = Field(default=ModelVersions.LATEST, alias='modelVersion')
+
+    @property
+    def project_id(self):
+        if isinstance(self.project, Link):
+            return self.project.ref.id
+        return self.project.id  # noqa
+
+
+class Projection(BaseModel):
+    id: PydanticObjectId
+    name: str
+
+    @model_validator(mode='before')
+    @classmethod
+    def validate_name(cls, data: dict):
+        if '_id' in data:
+            _id = data.pop('_id')
+            data['id'] = _id
+        return data
+
+
+async def _get_viewer_data() -> dict[str, list]:
+    translations = await Translation.find(
+        In(Translation.engine_version,
+           [*[v for v in ModelVersions if is_multi_modal(v)], ModelVersions.V1.value, ])
+    ).project(TranslationLight).to_list()
+    pids = {t.project_id for t in translations}
+    fbs, projects = await asyncio.gather(
+        TranslationFeedbackV2.find_all().to_list(),
+        Project.find(In(Project.id, list(pids))).project(Projection).to_list(),
+    )
+    return {'fbs': fbs, 'projects': projects, 'translations': translations}
+
+
+@st.cache_data(ttl=THREE_MINUTES)
+def get_viewer_data():
+    if st.session_state.get('DB') is None:
+        connect_DB()
+    ret = asyncio.run(_get_viewer_data())
+    return ret
+
+
+def _parse_file_upload(uploaded_file: UploadedFile):
+    if uploaded_file.name.endswith('nfs') or uploaded_file.name.endswith('xml'):
+        st.session_state['format'] = 'xml'
+    elif uploaded_file.name.endswith('srt'):
+        st.session_state['format'] = 'srt'
+    elif uploaded_file.name.endswith('txt'):
+        st.session_state['format'] = 'qtext'
+
+    if st.session_state['format'] == 'xml':
+        st.session_state['stage'] = 1
+        string_data = uploaded_file.getvalue().decode("utf-8")
+    else:
+        st.session_state['stage'] = 1
+        string_data = uploaded_file.getvalue()
+    return string_data
+
+
+def subtitles_viewer_from_db():
+    ret = get_viewer_data()
+    existing_feedbacks, projects, translations = ret['fbs'], ret['projects'], ret['translations']
+    names = [d.name for d in existing_feedbacks]
+    proj_id_to_name = {proj.id: proj.name for proj in projects}
+    proj_name_to_id = {proj.name: proj.id for proj in projects}
+    proj_id_to_ts = defaultdict(list)
+    for ts in translations:
+        proj_id_to_ts[ts.project_id].append(ts)
+
+    existing, new = dict(), dict()
+    for proj_id, _name in proj_id_to_name.items():
+        if _name in names:
+            existing[proj_id] = _name
+        else:
+            new[proj_id] = _name
+
+    def format_name(n):
+        _id = proj_name_to_id[n]
+        available_versions_repr = f'({", ".join([t.engine_version.value for t in proj_id_to_ts[_id]])})'
+        return f'{n} {available_versions_repr}'
+
+    def parse_file(f):
+        string_data = _parse_file_upload(f)
+        if f.name.endswith('nfs') or f.name.endswith('xml'):
+            string_data = xml_to_srt(string_data)
+        rows = srt_to_rows(string_data)
+        return rows
+
+    with st.form('forma'):
+        chosenObj = st.selectbox('Choose Translation', options=list(new.values()), format_func=format_name)
+        revision = st.file_uploader('Additional Subtitles', type=['srt', 'xml', 'txt', 'nfs'])
+        submit = st.form_submit_button('Get')
+        if submit:
+            _id = [k for k, v in new.items() if v == chosenObj][0]
+            st.session_state['projectId'] = _id
+            if revision:
+                st.session_state['file'] = parse_file(revision)
+
+    with st.form('forma2'):
+        chosenObj = st.selectbox('Update Existing Review', options=list(existing.values()), format_func=format_name)
+        revision = st.file_uploader('Additional Subtitles', type=['srt', 'xml', 'txt', 'nfs'])
+        submit = st.form_submit_button('Get')
+        if submit:
+            _id = [k for k, v in existing.items() if v == chosenObj][0]
+            st.session_state['projectId'] = _id
+            if revision:
+                st.session_state['file'] = parse_file(revision)
+
+    if 'projectId' in st.session_state:
+        project_id: str = st.session_state['projectId']
+        newest_ever_compare(project_id, st.session_state.get('file', None))
