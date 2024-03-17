@@ -106,7 +106,7 @@ async def get_stats(data, fbs) -> list[Stats]:
     by_v = {
         v: {'feedbacks': list(), 'sum_checked_rows': 0, 'all_names': set(), 'translations': [],
             'name_to_count': dict(), 'by_error': defaultdict(list), 'count': 0}
-        for v in set([version.value for version in ModelVersions if version.value in ALLOWED_VERSIONS])
+        for v in ALLOWED_VERSIONS
     }
 
     raw_fbs_stats = defaultdict(list)

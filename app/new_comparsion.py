@@ -127,8 +127,8 @@ async def construct_comparison_df(
     column_config[err_key] = SelectBoxColumn(err_key, labels)
     data[newest_v.value] = [row.translations.selection if row.translations is not None else None for row in t.subtitles]
     column_config[newest_v.value] = st.column_config.TextColumn(width='large', disabled=True)
-    data['Is Marked'] = [
-        True if row.translations and row.translations.scores is not None and row.translations.scores.IsValidTranslation == 1 else False
+    data['Reviewer Marked'] = [
+        False if row.translations and row.translations.scores is not None and row.translations.scores.IsValidTranslation == 1 else True
         for row in t.subtitles
     ]
     column_config['Is Marked'] = st.column_config.TextColumn(width='small', disabled=True)
