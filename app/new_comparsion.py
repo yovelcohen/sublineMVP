@@ -2,6 +2,7 @@ import asyncio
 import logging
 import re
 from collections import defaultdict
+from dataclasses import fields, asdict
 from typing import DefaultDict
 
 import pandas as pd
@@ -124,14 +125,17 @@ async def construct_comparison_df(
     labels = ['Gender Mistake', 'Time Tenses', 'Slang', 'Prepositions', 'Typo',
               'Name "as is"', 'Not fit in context', 'Plain Wrong Translation']
 
-    column_config[err_key] = SelectBoxColumn(err_key, labels)
     data[newest_v.value] = [row.translations.selection if row.translations is not None else None for row in t.subtitles]
     column_config[newest_v.value] = st.column_config.TextColumn(width='large', disabled=True)
+
+    data[err_key] = [None] * len(data[newest_v.value])
+    column_config[err_key] = SelectBoxColumn(err_key, labels)
+
     data['Reviewer Marked'] = [
         False if row.translations and row.translations.scores is not None and row.translations.scores.IsValidTranslation == 1 else True
         for row in t.subtitles
     ]
-    column_config['Is Marked'] = st.column_config.TextColumn(width='small', disabled=True)
+    column_config['Reviewer Marked'] = st.column_config.CheckboxColumn(width='small', disabled=True)
 
     if any([row.speaker_gender is not None for row in t.subtitles]):
         data['Speaker Gender'] = [row.speaker_gender for row in t.subtitles]
@@ -146,7 +150,8 @@ async def construct_comparison_df(
             feedback = existing_feedbacks[newest_v]
             existing_errors_map[fb_v.value] = {row['original']: row for row in feedback.marked_rows}
             data[err_key] = [
-                existing_errors_map[fb_v.value].get(content, {}).get('error', None) for content in data[english_key]
+                existing_errors_map[fb_v.value].get(content, {}).get('error', None)
+                for content in data[english_key]  # noqa
             ]
 
     maxlen = max([len(v) for v in data.values()])
@@ -202,7 +207,7 @@ async def _update_results(
 
 
 def _display_additional_variations(
-        version_to_translation,
+        version_to_translation: dict[ModelVersions, Translation],
         ENLGLISH_KEY: str,
         existing_feedbacks: dict[ModelVersions, TranslationFeedbackV2]
 ):
@@ -273,6 +278,35 @@ def _display_additional_variations(
                     edited_df = st.data_editor(styled, use_container_width=True, column_config=conf)
 
 
+def _display_reviewer_scores(
+        version_to_translation: dict[ModelVersions, Translation],
+):
+    by_v = {}
+    for version, translation in version_to_translation.items():
+        st.subheader(f'{version.value} Reviewer Scores')
+        first_scores = None
+        for row in translation.subtitles:
+            if row.translations and row.translations.is_set and row.translations.scores:
+                first_scores = row.translations.scores
+                break
+        stub_dict = {k.name: None for k in fields(first_scores)}
+        scores_df = pd.DataFrame(
+            [
+                {
+                    'English': row.content,
+                    'Translation': row.translations.selection if row.translations and row.translations.is_set else None,
+                    **(asdict(row.translations.scores) if row.translations and row.translations.scores else stub_dict)
+                }
+                for row in translation.subtitles]
+        )
+        by_v[version] = scores_df
+
+    with st.expander(label='Reviewer Scores', expanded=False):
+        for version, df in by_v.items():
+            st.subheader(f'{version.value} Reviewer Scores')
+            st.dataframe(df)
+
+
 async def get_compare_data(project_id) -> dict:
     project_id = PydanticObjectId(project_id)
     proj = await Project.get(project_id)
@@ -301,6 +335,9 @@ async def _newest_ever_compare_logic(project, translations: list[Translation], f
         version_to_translation=version_to_translation,
         ENLGLISH_KEY=ENLGLISH_KEY,
         existing_feedbacks=feedbacks
+    )
+    _display_reviewer_scores(
+        version_to_translation=version_to_translation
     )
 
     if st.button('Submit'):
